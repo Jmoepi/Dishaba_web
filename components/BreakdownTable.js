@@ -1,27 +1,28 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatMinutesHuman, formatMinutesVerbose } from '../lib/formatters';
 import Tooltip from './Tooltip';
-import Sparkline from './Sparkline';
 
 export default function BreakdownTable({
   rows = [],
   onClose,
   onRequestClose,
+  onReopen,
   currentUser = null,
   userRole = 'operator',
+  setToast,
 }) {
   const [openRow, setOpenRow] = useState(null);
 
-  const grouped = useMemo(() => {
-    // small perf: map equipment -> last N values for sparkline
-    const map = {};
-    for (const r of rows) {
-      map[r.equipment_item] = map[r.equipment_item] || [];
-      map[r.equipment_item].push(r.downtime_minutes || 0);
-      if (map[r.equipment_item].length > 12) map[r.equipment_item].shift();
+  function fmtDate(value) {
+    if (!value) return '—';
+    try {
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return String(value);
+      return d.toLocaleString();
+    } catch (e) {
+      return String(value);
     }
-    return map;
-  }, [rows]);
+  }
 
   const openDetails = (r) => setOpenRow(r);
   const closeDetails = () => setOpenRow(null);
@@ -46,13 +47,13 @@ export default function BreakdownTable({
             <th>Category</th>
             <th>Supervisor</th>
             <th>Downtime</th>
-            <th style={{ width: 140 }}>Trend</th>
             <th style={{ width: 180 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
-            const isOwner = currentUser?.user?.id && currentUser.user.id === r.reported_by;
+            const currentUserId = currentUser?.id || currentUser?.user?.id;
+            const isOwner = currentUserId && currentUserId === r.reported_by;
             const allowed =
               ['supervisor', 'admin'].includes(userRole) || (userRole === 'operator' && isOwner);
             return (
@@ -72,8 +73,8 @@ export default function BreakdownTable({
                   <span className="small muted">{r.category}</span>
                 </td>
                 <td data-label="Supervisor">
-                  {r.supervisor ? (
-                    <span className="small">{r.supervisor}</span>
+                  {r.supervisor_name || r.supervisor ? (
+                    <span className="small">{r.supervisor_name || r.supervisor}</span>
                   ) : (
                     <span className="small muted">—</span>
                   )}
@@ -88,9 +89,6 @@ export default function BreakdownTable({
                   ) : (
                     <span className="small muted">—</span>
                   )}
-                </td>
-                <td data-label="Trend">
-                  <Sparkline values={(grouped[r.equipment_item] || []).slice(-8)} />
                 </td>
                 <td data-label="Actions">
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -111,7 +109,38 @@ export default function BreakdownTable({
                         <span className="small muted">Not allowed</span>
                       )
                     ) : (
-                      <span className="pill closed">Closed</span>
+                      <>
+                        <span className="pill closed">Closed</span>
+                        {['supervisor', 'admin'].includes(userRole) && (
+                          <button
+                            className="btn ghost small"
+                            onClick={async () => {
+                              try {
+                                if (onReopen) {
+                                  await onReopen(r);
+                                } else {
+                                  const session = await fetch('/api/reopen', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: r.id }),
+                                  });
+                                  if (!session.ok) {
+                                    let body = null;
+                                    try { body = await session.json(); } catch (_) { body = await session.text(); }
+                                    throw new Error(body?.error || String(body));
+                                  }
+                                }
+                              } catch (e) {
+                                if (typeof setToast === 'function') {
+                                  setToast({ type: 'error', text: 'Reopen failed: ' + (e.message || e) });
+                                }
+                              }
+                            }}
+                          >
+                            Reopen
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </td>
@@ -164,7 +193,80 @@ export default function BreakdownTable({
                       <span className="small muted">No description provided.</span>
                     )}
                   </div>
+                  {openRow.status === 'Closed' && (
+                    <div style={{ marginTop: 8 }} className="small muted">
+                      Closed by: {openRow.closed_by_name || openRow.closed_by || openRow.closed_by_email || '—'}
+                    </div>
+                  )}
                 </div>
+
+                {/* Supervisor-only expanded details */}
+                {['supervisor', 'admin'].includes(userRole) && (
+                  <div style={{ marginTop: 18 }}>
+                    <h4 style={{ marginTop: 0 }}>Supervisor Details</h4>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Reporter</div>
+                      <div className="small">
+                        {openRow.reported_by_name || openRow.reported_by_email || openRow.reported_by || '—'}
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Supervisor</div>
+                      <div className="small">{openRow.supervisor_name || openRow.supervisor || '—'}</div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Created</div>
+                      <div className="small">{fmtDate(openRow.created_at || openRow.occurred_on)}</div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Updated</div>
+                      <div className="small">{fmtDate(openRow.updated_at)}</div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Severity</div>
+                      <div className="small">{openRow.severity || openRow.priority || '—'}</div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Location</div>
+                      <div className="small">{openRow.location || openRow.plant || openRow.area || '—'}</div>
+                    </div>
+                    {openRow.tags && (
+                      <div style={{ marginTop: 8 }}>
+                        <div className="small muted">Tags</div>
+                        <div className="small">{Array.isArray(openRow.tags) ? openRow.tags.join(', ') : String(openRow.tags)}</div>
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8 }}>
+                      <div className="small muted">Downtime (verbose)</div>
+                      <div className="small">
+                        {typeof openRow.downtime_minutes === 'number' ? formatMinutesVerbose(openRow.downtime_minutes) : '—'}
+                      </div>
+                    </div>
+                    {openRow.resolution && (
+                      <div style={{ marginTop: 12 }}>
+                        <div className="small muted">Resolution (full)</div>
+                        <div className="small">{openRow.resolution}</div>
+                      </div>
+                    )}
+                    {openRow.status === 'Closed' && (
+                      <div style={{ marginTop: 8 }} className="small muted">
+                        Closed by: {openRow.closed_by_name || openRow.closed_by || openRow.closed_by_email || '—'}
+                      </div>
+                    )}
+                    {openRow.attachments && (
+                      <div style={{ marginTop: 8 }}>
+                        <div className="small muted">Attachments</div>
+                        <div className="small">
+                          {Array.isArray(openRow.attachments)
+                            ? openRow.attachments.map((a, i) => (
+                                <div key={i}>{a.name || a}</div>
+                              ))
+                            : String(openRow.attachments)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

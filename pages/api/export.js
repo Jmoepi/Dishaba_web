@@ -35,9 +35,14 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // Call RPC to get breakdowns between dates (optional: accept body params)
+    // Query breakdowns between dates directly using the service role key
     const { start_date = '1970-01-01', end_date = '2099-12-31' } = req.body || {};
-    const { data, error } = await supabaseAdmin.rpc('export_breakdowns', { start_date, end_date });
+    const { data, error } = await supabaseAdmin
+      .from('breakdowns')
+      .select('*')
+      .gte('occurred_on', start_date)
+      .lte('occurred_on', end_date)
+      .order('occurred_on', { ascending: true });
     if (error) throw error;
 
     // Return CSV payload as attachment

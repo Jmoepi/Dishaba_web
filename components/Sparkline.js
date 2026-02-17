@@ -117,9 +117,12 @@ export default function Sparkline({ values = [], labels = [], color = '#2563eb',
       if (elements && elements.length) {
         const el = elements[0];
         const idx = el.index;
-        setHover({ index: idx, label: labelsMemo[idx], value: values[idx] });
+        setHover((prev) => {
+          if (prev && prev.index === idx) return prev;
+          return { index: idx, label: labelsMemo[idx], value: values[idx] };
+        });
       } else {
-        setHover(null);
+        setHover((prev) => (prev ? null : prev));
       }
     },
   }), [labelsMemo, values, resolvedMuted]);

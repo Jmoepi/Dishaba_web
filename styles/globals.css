@@ -142,17 +142,6 @@ body {
   display: flex;
   min-height: calc(100vh - 64px);
 }
-.sidebar {
-  width: 220px;
-  padding: 16px;
-  border-right: 1px solid var(--border);
-  background: transparent;
-}
-.sidebar .nav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 .nav-link {
   display: flex;
   align-items: center;
@@ -166,6 +155,22 @@ body {
 .nav-link.active {
   background: linear-gradient(90deg, rgba(15, 99, 255, 0.06), rgba(6, 182, 212, 0.03));
   color: var(--primary);
+}
+.topbar .topnav {
+  display: flex;
+  gap: 8px;
+  margin-left: 12px;
+  align-items: center;
+  flex: 1 1 auto;
+}
+.topbar .topnav .nav-link {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+.topbar .topnav .nav-icon {
+  width: 16px;
+  height: 16px;
 }
 .content {
   flex: 1;
@@ -385,9 +390,6 @@ textarea:focus {
   .kpi-row {
     grid-template-columns: repeat(2, 1fr);
   }
-  .sidebar {
-    display: none;
-  }
 }
 
 @media (max-width: 720px) {
@@ -502,12 +504,20 @@ textarea:focus {
 }
 
 /* Sidebar hint card */
-.sidebar-hint {
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.15));
+/* Top navigation tweaks */
+.topbar .topnav .nav-link {
+  transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+.topbar .topnav .nav-link:hover {
+  background: linear-gradient(90deg, rgba(15, 99, 255, 0.04), rgba(6, 182, 212, 0.02));
+  transform: translateY(-2px);
+  color: var(--primary);
+}
+.topbar .topnav .nav-link.active {
+  background: transparent;
+  color: var(--primary);
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 6px;
 }
 
 /* Bottom nav should show on mobile (your CSS already positions it) */

@@ -93,19 +93,41 @@ export default async function handler(req, res) {
     }
     const mins = Math.max(0, Math.round((endDate - startDate) / 60000));
 
-    // Update breakdown using admin key
-    const { error: updateErr } = await supabaseAdmin
-      .from('breakdowns')
-      .update({
-        status: 'Closed',
-        resolution: resolution.trim(),
-        end_time: endHHmm,
-        downtime_minutes: mins,
-        updated_at: new Date().toISOString(),
-        is_synced: false,
-      })
-      .eq('id', id);
-    if (updateErr) throw updateErr;
+    // Prepare update payload
+    const basePayload = {
+      status: 'Closed',
+      resolution: resolution.trim(),
+      end_time: endHHmm,
+      downtime_minutes: mins,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Try to include who closed the incident (best-effort; retry without if column missing)
+    const closerName = userResp.user?.user_metadata?.full_name || userResp.user?.user_metadata?.name || userResp.user?.email || null;
+    const closerPayload = {
+      closed_by: uid,
+      closed_by_name: closerName,
+      closed_by_email: userResp.user?.email || null,
+    };
+
+    let updateErr = null;
+    try {
+      const { error } = await supabaseAdmin.from('breakdowns').update({ ...basePayload, ...closerPayload }).eq('id', id);
+      updateErr = error;
+    } catch (e) {
+      updateErr = e;
+    }
+
+    // If update failed due to missing columns in the schema, retry without the closer fields
+    if (updateErr) {
+      const msg = String(updateErr.message || updateErr);
+      if (msg.includes("Could not find the '") || msg.includes('PGRST204')) {
+        const { error } = await supabaseAdmin.from('breakdowns').update(basePayload).eq('id', id);
+        if (error) throw error;
+      } else {
+        throw updateErr;
+      }
+    }
 
     // Audit log insert (best-effort)
     try {

@@ -9,18 +9,36 @@ export default function ConfirmModal({
   confirmLabel = 'Confirm',
 }) {
   const dialogRef = useRef(null);
+  const onConfirmRef = useRef(onConfirm);
+  const onCancelRef = useRef(onCancel);
+
+  // keep refs up to date without re-running the focus/key effect
+  useEffect(() => {
+    onConfirmRef.current = onConfirm;
+    onCancelRef.current = onCancel;
+  }, [onConfirm, onCancel]);
 
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement;
-    setTimeout(() => dialogRef.current?.querySelector('button')?.focus(), 10);
+
+    // Focus the first input/textarea for immediate typing, fall back to button
+    setTimeout(() => {
+      const first = dialogRef.current?.querySelector('input, textarea, button');
+      first?.focus && first.focus();
+    }, 10);
 
     const onKey = (e) => {
-      if (e.key === 'Escape') onCancel && onCancel();
+      if (e.key === 'Escape') onCancelRef.current && onCancelRef.current();
       if (e.key === 'Enter') {
         const active = document.activeElement;
         if (dialogRef.current && dialogRef.current.contains(active)) {
-          onConfirm && onConfirm();
+          const tag = active && active.tagName && active.tagName.toLowerCase();
+          // If focus is inside an input/textarea or contentEditable, allow normal Enter behavior
+          if (tag === 'textarea' || tag === 'input' || active?.isContentEditable) {
+            return;
+          }
+          onConfirmRef.current && onConfirmRef.current();
         }
       }
     };
@@ -29,7 +47,7 @@ export default function ConfirmModal({
       document.removeEventListener('keydown', onKey);
       prev?.focus && prev.focus();
     };
-  }, [open, onCancel, onConfirm]);
+  }, [open]);
 
   if (!open) return null;
 

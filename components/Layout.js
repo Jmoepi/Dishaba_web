@@ -94,11 +94,14 @@ export default function Layout({
   const NAV = useMemo(() => {
     const privileged = isPrivileged(role);
     return [
-      { href: '/', label: 'Dashboard', icon: 'dashboard', show: true },
+      // Root is the public landing/home page
+      { href: '/', label: 'Home', icon: 'dashboard', show: true },
+      // Keep the in-app dashboard accessible
+      { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', show: true },
       { href: '/admin', label: 'Breakdowns', icon: 'wrench', show: true },
       { href: '/analytics', label: 'Analytics', icon: 'chart', show: true },
       // Example admin/supervisor-only area (keep if you have /admin tools, else remove)
-      { href: '/admin', label: privileged ? 'Admin Tools' : 'Tools', icon: 'shield', show: privileged },
+      { href: '/admin/tools', label: privileged ? 'Admin Tools' : 'Tools', icon: 'shield', show: privileged },
     ].filter((x) => x.show);
   }, [role]);
 
@@ -215,6 +218,24 @@ export default function Layout({
             </div>
           </div>
 
+          {/* Primary navigation moved to topbar */}
+          {NAV && NAV.length > 0 && (
+            <nav className="nav topnav" aria-label="Primary navigation">
+              {NAV.map((n) => (
+                <Link
+                  key={`${n.href}:${n.label}`}
+                  href={n.href}
+                  className={`nav-link ${isActive(n.href) ? 'active' : ''}`}
+                >
+                  <span className="nav-icon" aria-hidden="true">
+                    <Icon name={n.icon} />
+                  </span>
+                  <span className="nav-label">{n.label}</span>
+                </Link>
+              ))}
+            </nav>
+          )}
+
           <div className="actions">
             {authLoading ? (
               <div className="small muted">Checking session…</div>
@@ -249,34 +270,6 @@ export default function Layout({
       )}
 
       <div className="layout">
-        {shouldShowShell && (
-          <aside className="sidebar" aria-label="Primary navigation">
-            <nav className="nav">
-              {NAV.map((n) => (
-                <Link
-                  key={`${n.href}:${n.label}`}
-                  href={n.href}
-                  className={`nav-link ${isActive(n.href) ? 'active' : ''}`}
-                >
-                  <span className="nav-icon" aria-hidden="true">
-                    <Icon name={n.icon} />
-                  </span>
-                  <span className="nav-label">{n.label}</span>
-                </Link>
-              ))}
-            </nav>
-
-            {/* Small helper card */}
-            <div className="sidebar-hint">
-              <div className="small muted">Tip</div>
-              <div style={{ fontWeight: 800, marginTop: 4 }}>Offline first</div>
-              <div className="small muted" style={{ marginTop: 4 }}>
-                Log breakdowns underground. Sync when signal is back.
-              </div>
-            </div>
-          </aside>
-        )}
-
         <main className="content">
           {shouldShowShell && (pageTitle || pageDescription || pageActions) && (
             <div className="page-header">

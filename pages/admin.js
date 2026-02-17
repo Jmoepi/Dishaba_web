@@ -5,7 +5,7 @@ import BreakdownTable from '../components/BreakdownTable';
 import ConfirmModal from '../components/ConfirmModal';
 import Layout from '../components/Layout';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 function canExport(role) {
   return ['supervisor', 'admin'].includes(role);
@@ -134,11 +134,6 @@ export default function Admin() {
     }
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    window.location.href = '/';
-  };
 
   const doExport = async () => {
     if (!user) return setToast({ type: 'error', text: 'Sign in first.' });
@@ -168,8 +163,8 @@ export default function Admin() {
 
         const msg =
           body?.error || (typeof body === 'string' ? body : null) || `${r.status} ${r.statusText}`;
-        console.error('Export failed response', r.status, r.statusText, body);
-        throw new Error(msg || 'Export failed');
+        setToast({ type: 'error', text: 'Export failed: ' + (msg || 'Export failed') });
+        return;
       }
 
       const blob = await r.blob();
@@ -210,8 +205,8 @@ export default function Admin() {
         }
         const msg =
           body?.error || (typeof body === 'string' ? body : null) || `${r.status} ${r.statusText}`;
-        console.error('Close failed response', r.status, r.statusText, body);
-        throw new Error(msg || 'Close failed');
+        setToast({ type: 'error', text: 'Failed to close: ' + (msg || 'Close failed') });
+        return;
       }
 
       const payload = await r.json();
@@ -280,15 +275,11 @@ export default function Admin() {
           {user ? (
             <>
               <span className={`pill ${roleBadgeTone}`}>{roleLabel}</span>
-              <span className="small muted hide-sm">{user.email}</span>
               {canExport(role) && (
                 <button className="btn primary" onClick={doExport}>
                   Export CSV
                 </button>
               )}
-              <button className="btn ghost" onClick={signOut}>
-                Sign out
-              </button>
             </>
           ) : (
             <Link href="/login" className="btn primary">
@@ -376,12 +367,6 @@ export default function Admin() {
           <div className="admin-actions">
             <button className="btn primary" onClick={doExport} disabled={!user || !canExport(role)}>
               Export CSV
-            </button>
-            <button
-              className="btn ghost"
-              onClick={() => setToast({ type: 'info', text: 'Uses /api/export with service role on server.' })}
-            >
-              How it works
             </button>
           </div>
 
@@ -477,8 +462,33 @@ export default function Admin() {
             rows={rows}
             onClose={onClose}
             onRequestClose={handleRequestClose}
+            onReopen={async (row) => {
+              try {
+                const session = await supabase.auth.getSession();
+                const token = session?.data?.session?.access_token;
+                const r = await fetch('/api/reopen', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: token ? `Bearer ${token}` : undefined,
+                  },
+                  body: JSON.stringify({ id: row.id }),
+                });
+                if (!r.ok) {
+                  let body = null;
+                  try { body = await r.json(); } catch (_) { body = await r.text(); }
+                  throw new Error(body?.error || `${r.status} ${r.statusText}`);
+                }
+                setToast({ type: 'success', text: 'Reopened.' });
+                await loadBreakdowns(page, statusFilter, categoryFilter, searchText);
+              } catch (e) {
+                setToast({ type: 'error', text: 'Reopen failed: ' + (e.message || e) });
+                throw e;
+              }
+            }}
             currentUser={user}
             userRole={role}
+            setToast={setToast}
           />
         )}
       </div>
