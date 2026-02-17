@@ -16,7 +16,10 @@ export default async function handler(req, res) {
   const rlKey = `rl:${ip}`;
   const now = Date.now();
   const rl = global[rlKey] || { ts: now, count: 0 };
-  if (now - rl.ts > 60_000) { rl.ts = now; rl.count = 0; }
+  if (now - rl.ts > 60_000) {
+    rl.ts = now;
+    rl.count = 0;
+  }
   rl.count += 1;
   global[rlKey] = rl;
   if (rl.count > 60) return res.status(429).json({ error: 'Rate limit exceeded' });
@@ -31,9 +34,14 @@ export default async function handler(req, res) {
     const uid = userResp.user.id;
 
     // Only supervisors/admins allowed to list in this admin portal
-    const { data: profile } = await supabaseAdmin.from('profiles').select('role').eq('id', uid).maybeSingle();
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', uid)
+      .maybeSingle();
     const role = profile?.role || 'operator';
-    if (!['supervisor', 'admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+    if (!['supervisor', 'admin'].includes(role))
+      return res.status(403).json({ error: 'Forbidden' });
 
     const page = Math.max(0, parseInt(req.query.page || '0', 10));
     const limit = Math.min(1000, parseInt(req.query.limit || '20', 10));
@@ -51,7 +59,11 @@ export default async function handler(req, res) {
 
     const from = page * limit;
     const to = from + limit - 1;
-    let query = supabaseAdmin.from('breakdowns').select('*').order('occurred_on', { ascending: false }).range(from, to);
+    let query = supabaseAdmin
+      .from('breakdowns')
+      .select('*')
+      .order('occurred_on', { ascending: false })
+      .range(from, to);
     if (status) query = query.eq('status', status);
     if (category) query = query.eq('category', category);
     if (search) query = query.ilike('equipment_item', `%${search}%`);

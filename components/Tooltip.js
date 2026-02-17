@@ -4,9 +4,11 @@ export default function Tooltip({ children, label }) {
   const id = useId();
   const tid = `tooltip-${id}`;
   return (
-    <span className="tooltip" tabIndex={0} aria-describedby={tid}>
+    <span className="tooltip" tabIndex={0} role="button" aria-describedby={tid}>
       {children}
-      <span id={tid} role="tooltip" className="tooltip-content">{label}</span>
+      <span id={tid} role="tooltip" className="tooltip-content">
+        {label}
+      </span>
     </span>
   );
 }

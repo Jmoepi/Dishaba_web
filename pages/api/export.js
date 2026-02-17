@@ -44,7 +44,11 @@ export default async function handler(req, res) {
     const rows = data || [];
     // Build CSV server-side
     const csvHeader = Object.keys(rows[0] || {}).join(',');
-    const csvRows = rows.map(r => Object.values(r).map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    const csvRows = rows.map((r) =>
+      Object.values(r)
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(',')
+    );
     const csv = [csvHeader, ...csvRows].join('\n');
 
     res.setHeader('Content-Type', 'text/csv');

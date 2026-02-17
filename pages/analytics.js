@@ -29,11 +29,24 @@ ChartJS.register(
 function fmtMins(mins) {
   const m = Number(mins || 0);
   if (!m) return '0 min';
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  if (h <= 0) return `${r} min`;
-  if (r === 0) return `${h}h`;
-  return `${h}h ${r}m`;
+  const days = Math.floor(m / 1440);
+  const hours = Math.floor((m % 1440) / 60);
+  const minutes = m % 60;
+
+  if (days > 0) {
+    const parts = [];
+    parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    return parts.join(' ');
+  }
+
+  if (hours > 0) {
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  }
+
+  return `${minutes} min`;
 }
 
 function safeDateOnly(v) {
@@ -54,16 +67,52 @@ function tokenizeCause(text) {
   if (!lower) return [];
 
   const stop = new Set([
-    'the','and','or','to','of','in','on','for','with','a','an','is','was','were',
-    'issue','issues','fault','breakdown','broke','down','machine','equipment',
-    'fix','fixed','replace','replaced','check','checked','tested','test',
-    'motor','belt','bearing','system','error','failure','leak','overheating',
-    'repair','repaired','maintenance','planned','inspection'
+    'the',
+    'and',
+    'or',
+    'to',
+    'of',
+    'in',
+    'on',
+    'for',
+    'with',
+    'a',
+    'an',
+    'is',
+    'was',
+    'were',
+    'issue',
+    'issues',
+    'fault',
+    'breakdown',
+    'broke',
+    'down',
+    'machine',
+    'equipment',
+    'fix',
+    'fixed',
+    'replace',
+    'replaced',
+    'check',
+    'checked',
+    'tested',
+    'test',
+    'motor',
+    'belt',
+    'bearing',
+    'system',
+    'error',
+    'failure',
+    'leak',
+    'overheating',
+    'repair',
+    'repaired',
+    'maintenance',
+    'planned',
+    'inspection',
   ]);
 
-  return lower
-    .split(' ')
-    .filter(w => w.length >= 3 && !stop.has(w));
+  return lower.split(' ').filter((w) => w.length >= 3 && !stop.has(w));
 }
 
 export default function AnalyticsPage() {
@@ -157,7 +206,7 @@ export default function AnalyticsPage() {
 
   const agg = useMemo(() => {
     // Normalized rows for safety
-    const data = (rows || []).map(r => ({
+    const data = (rows || []).map((r) => ({
       ...r,
       occurred_on: r.occurred_on || null,
       category: r.category || 'Unspecified',
@@ -226,20 +275,24 @@ export default function AnalyticsPage() {
       }
     }
 
-    const dateLabels = Object.keys(byDate).filter(d => d !== 'unknown').sort();
-    const dateCounts = dateLabels.map(d => byDate[d]);
+    const dateLabels = Object.keys(byDate)
+      .filter((d) => d !== 'unknown')
+      .sort();
+    const dateCounts = dateLabels.map((d) => byDate[d]);
 
-    const categoryPairsCount = Object.entries(byCategoryCount).sort((a,b)=>b[1]-a[1]);
-    const categoryLabels = categoryPairsCount.map(p=>p[0]);
-    const categoryCounts = categoryPairsCount.map(p=>p[1]);
+    const categoryPairsCount = Object.entries(byCategoryCount).sort((a, b) => b[1] - a[1]);
+    const categoryLabels = categoryPairsCount.map((p) => p[0]);
+    const categoryCounts = categoryPairsCount.map((p) => p[1]);
 
-    const categoryPairsDowntime = Object.entries(downtimeByCategory).sort((a,b)=>b[1]-a[1]);
-    const categoryDowntimeLabels = categoryPairsDowntime.map(p=>p[0]).slice(0, 8);
-    const categoryDowntimeValues = categoryPairsDowntime.map(p=>p[1]).slice(0, 8);
+    const categoryPairsDowntime = Object.entries(downtimeByCategory).sort((a, b) => b[1] - a[1]);
+    const categoryDowntimeLabels = categoryPairsDowntime.map((p) => p[0]).slice(0, 8);
+    const categoryDowntimeValues = categoryPairsDowntime.map((p) => p[1]).slice(0, 8);
 
-    const equipPairs = Object.entries(downtimeByEquipment).sort((a,b)=>b[1]-a[1]).slice(0,8);
-    const equipLabels = equipPairs.map(p=>p[0]);
-    const equipValues = equipPairs.map(p=>p[1]);
+    const equipPairs = Object.entries(downtimeByEquipment)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    const equipLabels = equipPairs.map((p) => p[0]);
+    const equipValues = equipPairs.map((p) => p[1]);
 
     const totalBreakdowns = data.length;
     const avgDowntime = totalBreakdowns ? Math.round(totalDowntime / totalBreakdowns) : 0;
@@ -252,25 +305,25 @@ export default function AnalyticsPage() {
     // Note: This is a reasonable “ops” estimate when you don’t have runtime hours.
     const mtbfByEquipment = [];
     for (const [eq, times] of Object.entries(equipmentDates)) {
-      const sorted = [...times].sort((a,b)=>a-b);
+      const sorted = [...times].sort((a, b) => a - b);
       if (sorted.length < 2) continue;
       let sumDiffDays = 0;
-      for (let i=1;i<sorted.length;i++) {
-        const diffMs = sorted[i] - sorted[i-1];
+      for (let i = 1; i < sorted.length; i++) {
+        const diffMs = sorted[i] - sorted[i - 1];
         sumDiffDays += diffMs / (1000 * 60 * 60 * 24);
       }
       const avgDays = sumDiffDays / (sorted.length - 1);
       mtbfByEquipment.push([eq, avgDays]);
     }
-    mtbfByEquipment.sort((a,b)=>b[1]-a[1]); // higher MTBF is better
+    mtbfByEquipment.sort((a, b) => b[1] - a[1]); // higher MTBF is better
     const overallMtbfDays = mtbfByEquipment.length
-      ? (mtbfByEquipment.reduce((acc, x)=>acc + x[1], 0) / mtbfByEquipment.length)
+      ? mtbfByEquipment.reduce((acc, x) => acc + x[1], 0) / mtbfByEquipment.length
       : 0;
 
     // Top causes
     const topCauses = Object.entries(keywordCounts)
-      .sort((a,b)=>b[1]-a[1])
-      .slice(0,5);
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
 
     return {
       data,
@@ -316,7 +369,10 @@ export default function AnalyticsPage() {
     sections.push(['total_downtime_minutes', agg.totalDowntime]);
     sections.push(['avg_downtime_minutes', agg.avgDowntime]);
     sections.push(['mttr_minutes', agg.mttr]);
-    sections.push(['mtbf_days_estimated', agg.overallMtbfDays ? agg.overallMtbfDays.toFixed(2) : 0]);
+    sections.push([
+      'mtbf_days_estimated',
+      agg.overallMtbfDays ? agg.overallMtbfDays.toFixed(2) : 0,
+    ]);
     sections.push(['top_category', agg.topCategory]);
     sections.push(['open_count', agg.statusCounts.Open]);
     sections.push(['closed_count', agg.statusCounts.Closed]);
@@ -339,12 +395,12 @@ export default function AnalyticsPage() {
 
     sections.push(['Top Equipment Downtime (mins)']);
     sections.push(['equipment', 'downtime_minutes']);
-    agg.equipPairs.forEach(p => sections.push([p[0], p[1]]));
+    agg.equipPairs.forEach((p) => sections.push([p[0], p[1]]));
     sections.push([]);
 
     sections.push(['Top Causes (keywords from descriptions)']);
     sections.push(['keyword', 'count']);
-    agg.topCauses.forEach(p => sections.push([p[0], p[1]]));
+    agg.topCauses.forEach((p) => sections.push([p[0], p[1]]));
 
     const csv = Papa.unparse(sections, { skipEmptyLines: false });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -373,35 +429,88 @@ export default function AnalyticsPage() {
   };
 
   return (
-    <Layout title="Analytics — Dishaba Mine" pageTitle="Analytics" pageDescription="Executive view: trends, downtime, reliability">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 14 }}>
+    <Layout
+      title="Analytics — Dishaba Mine"
+      pageTitle="Analytics"
+      pageDescription="Executive view: trends, downtime, reliability"
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          gap: 12,
+          marginBottom: 14,
+        }}
+      >
         <div>
           <h2 style={{ margin: 0 }}>Analytics</h2>
           <div className="small muted">Executive view: trends, downtime, reliability</div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          <button className="btn ghost" onClick={applyFilters} disabled={loading}>Apply</button>
-          <button className="btn ghost" onClick={clearFilters} disabled={loading}>Clear</button>
-          <button className="btn" onClick={exportDashboardCSV} disabled={loading || rows.length === 0}>Export CSV</button>
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <input
+            className="input"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <input
+            className="input"
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+          <button className="btn ghost" onClick={applyFilters} disabled={loading}>
+            Apply
+          </button>
+          <button className="btn ghost" onClick={clearFilters} disabled={loading}>
+            Clear
+          </button>
+          <button
+            className="btn"
+            onClick={exportDashboardCSV}
+            disabled={loading || rows.length === 0}
+          >
+            Export CSV
+          </button>
         </div>
       </div>
 
       {/* KPI Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(6, minmax(160px, 1fr))',
+          gap: 12,
+          marginBottom: 14,
+        }}
+      >
         <div className="card">
           <div className="small muted">Total Breakdowns</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{loading ? '...' : agg.totalBreakdowns}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>
+            {loading ? '...' : agg.totalBreakdowns}
+          </div>
         </div>
         <div className="card">
           <div className="small muted">Total Downtime</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{loading ? '...' : fmtMins(agg.totalDowntime)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>
+            {loading ? '...' : fmtMins(agg.totalDowntime)}
+          </div>
         </div>
         <div className="card">
           <div className="small muted">Avg Downtime</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{loading ? '...' : fmtMins(agg.avgDowntime)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>
+            {loading ? '...' : fmtMins(agg.avgDowntime)}
+          </div>
         </div>
         <div className="card">
           <div className="small muted">MTTR (Closed)</div>
@@ -411,18 +520,24 @@ export default function AnalyticsPage() {
         <div className="card">
           <div className="small muted">MTBF (Estimated)</div>
           <div style={{ fontSize: 22, fontWeight: 800 }}>
-            {loading ? '...' : `${agg.overallMtbfDays ? agg.overallMtbfDays.toFixed(1) : '0.0'} days`}
+            {loading
+              ? '...'
+              : `${agg.overallMtbfDays ? agg.overallMtbfDays.toFixed(1) : '0.0'} days`}
           </div>
           <div className="small muted">Mean time between failures</div>
         </div>
         <div className="card">
           <div className="small muted">Top Category</div>
-          <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{loading ? '...' : agg.topCategory}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>
+            {loading ? '...' : agg.topCategory}
+          </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="card"><p style={{ margin: 0 }}>Loading analytics…</p></div>
+        <div className="card">
+          <p style={{ margin: 0 }}>Loading analytics…</p>
+        </div>
       ) : error ? (
         <div className="card" style={{ border: '1px solid #ef4444' }}>
           <p style={{ color: '#ef4444', margin: 0 }}>{error}</p>
@@ -438,7 +553,14 @@ export default function AnalyticsPage() {
           {/* LEFT COLUMN */}
           <div style={{ display: 'grid', gap: 12 }}>
             <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
                 <h3 style={{ marginTop: 0, marginBottom: 8 }}>Breakdowns Over Time</h3>
                 <div className="small muted">
                   Showing {rows.length} record{rows.length !== 1 ? 's' : ''}
@@ -490,25 +612,50 @@ export default function AnalyticsPage() {
             <div className="card">
               <h4 style={{ marginTop: 0 }}>Reliability (MTBF by Equipment, estimated)</h4>
               <div className="small muted" style={{ marginBottom: 8 }}>
-                Estimated from gaps between breakdown dates per equipment (needs runtime-hours for perfect MTBF).
+                Estimated from gaps between breakdown dates per equipment (needs runtime-hours for
+                perfect MTBF).
               </div>
 
               {agg.mtbfByEquipment.length === 0 ? (
-                <p className="small muted">Not enough history per equipment (need at least 2 breakdown dates).</p>
+                <p className="small muted">
+                  Not enough history per equipment (need at least 2 breakdown dates).
+                </p>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Equipment</th>
-                        <th style={{ textAlign: 'right', padding: 8, borderBottom: '1px solid #e5e7eb' }}>Avg days between failures</th>
+                        <th
+                          style={{
+                            textAlign: 'left',
+                            padding: 8,
+                            borderBottom: '1px solid #e5e7eb',
+                          }}
+                        >
+                          Equipment
+                        </th>
+                        <th
+                          style={{
+                            textAlign: 'right',
+                            padding: 8,
+                            borderBottom: '1px solid #e5e7eb',
+                          }}
+                        >
+                          Avg days between failures
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {agg.mtbfByEquipment.map(([eq, days]) => (
                         <tr key={eq}>
                           <td style={{ padding: 8, borderBottom: '1px solid #f1f5f9' }}>{eq}</td>
-                          <td style={{ padding: 8, borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}>
+                          <td
+                            style={{
+                              padding: 8,
+                              borderBottom: '1px solid #f1f5f9',
+                              textAlign: 'right',
+                            }}
+                          >
                             {days.toFixed(1)}
                           </td>
                         </tr>
@@ -530,7 +677,11 @@ export default function AnalyticsPage() {
                     labels: ['Closed', 'Open', 'Other'],
                     datasets: [
                       {
-                        data: [agg.statusCounts.Closed, agg.statusCounts.Open, agg.statusCounts.Other],
+                        data: [
+                          agg.statusCounts.Closed,
+                          agg.statusCounts.Open,
+                          agg.statusCounts.Other,
+                        ],
                         backgroundColor: ['#22c55e', '#f59e0b', '#94a3b8'],
                       },
                     ],
@@ -552,7 +703,16 @@ export default function AnalyticsPage() {
                     datasets: [
                       {
                         data: agg.categoryCounts.slice(0, 8),
-                        backgroundColor: ['#2563eb', '#06b6d4', '#f97316', '#ef4444', '#a855f7', '#22c55e', '#eab308', '#64748b'],
+                        backgroundColor: [
+                          '#2563eb',
+                          '#06b6d4',
+                          '#f97316',
+                          '#ef4444',
+                          '#a855f7',
+                          '#22c55e',
+                          '#eab308',
+                          '#64748b',
+                        ],
                       },
                     ],
                   }}
@@ -567,7 +727,13 @@ export default function AnalyticsPage() {
                 <Bar
                   data={{
                     labels: agg.equipLabels,
-                    datasets: [{ label: 'Downtime (min)', data: agg.equipValues, backgroundColor: '#06b6d4' }],
+                    datasets: [
+                      {
+                        label: 'Downtime (min)',
+                        data: agg.equipValues,
+                        backgroundColor: '#06b6d4',
+                      },
+                    ],
                   }}
                   options={{ ...chartOptions, indexAxis: 'y' }}
                 />
