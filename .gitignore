@@ -1,0 +1,48 @@
+node_modules/
+.next/
+/.vercel/
+.env
+.env.local
+.env.*.local
+.DS_Store
+.vscode/
+.idea/
+.pnpm-store/
+dist/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/.cache/# Environment and secrets
+.env
+
+# Flutter / Dart / Pub
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+.pub-cache/
+.pub/
+build/
+
+# Generated configs
+ios/Flutter/Generated.xcconfig
+ios/Flutter/Flutter.podspec
+macos/Flutter/GeneratedPluginRegistrant.swift
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# Android/Gradle
+android/.gradle/
+android/app/debug.keystore
+android/local.properties
+
+# IDEs / Editors
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+node_modules
