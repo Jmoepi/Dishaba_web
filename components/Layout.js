@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
+import QuickLog from './QuickLog';
 
 // Minimal inline icons (no extra deps)
 function Icon({ name, size = 18 }) {
@@ -286,6 +287,8 @@ export default function Layout({
           {shouldShowShell ? <div className="card">{children}</div> : <>{children}</>}
         </main>
       </div>
+      {/* Always-available quick log button/modal */}
+      {shouldShowShell && <QuickLog />}
 
       {shouldShowShell && (
         <footer style={{ textAlign: 'center', padding: '18px 0', color: 'var(--muted)' }}>

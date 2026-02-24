@@ -63,6 +63,15 @@ export default function Admin() {
 
   const clearToast = () => setToast(null);
 
+  // Quick new-breakdown form state
+  const [nbEquipment, setNbEquipment] = useState('');
+  const [nbCategory, setNbCategory] = useState('');
+  const [nbDesc, setNbDesc] = useState('');
+  const now = new Date();
+  const [nbDate, setNbDate] = useState(now.toISOString().slice(0, 10));
+  const [nbTime, setNbTime] = useState(now.toTimeString().slice(0, 5));
+  const [creating, setCreating] = useState(false);
+
   // Derived labels
   const roleLabel = useMemo(() => {
     if (role === 'admin') return 'Admin';
@@ -101,6 +110,17 @@ export default function Admin() {
     return () => {
       mounted = false;
     };
+    // Listen for global quick-log events so admin list refreshes
+    // (keeps list up-to-date when breakdowns are created elsewhere)
+  }, [statusFilter, categoryFilter, searchText]);
+
+  useEffect(() => {
+    const handler = () => {
+      // reload first page when a new breakdown is created
+      loadBreakdowns(0, statusFilter, categoryFilter, searchText).catch(() => {});
+    };
+    window.addEventListener('breakdown:created', handler);
+    return () => window.removeEventListener('breakdown:created', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, categoryFilter, searchText]);
 
@@ -183,7 +203,7 @@ export default function Admin() {
 
   const onClose = async (row, resolution) => {
     if (!resolution || resolution.trim().length < 6) {
-      setToast({ type: 'error', text: 'Please provide a short resolution (min 6 characters).' });
+      setToast({ type: 'error', text: 'Please provide a short Closed Out Action (min 6 characters).' });
       return;
     }
     try {
@@ -251,6 +271,45 @@ export default function Admin() {
       setToast({ type: 'success', text: 'Role updated.' });
     } catch (e) {
       setToast({ type: 'error', text: e.message || String(e) });
+    }
+  };
+
+  const createBreakdown = async () => {
+    if (!user) return setToast({ type: 'error', text: 'Sign in first.' });
+    if (!nbEquipment || nbEquipment.trim().length < 2)
+      return setToast({ type: 'error', text: 'Please provide an equipment name.' });
+
+    setCreating(true);
+    try {
+      const payload = {
+        equipment_item: nbEquipment.trim(),
+        category: nbCategory || null,
+        description: nbDesc || null,
+        occurred_on: nbDate,
+        start_time: nbTime,
+        reported_by: user.id,
+        supervisor_name: user.email || null,
+        status: 'Open',
+      };
+
+      const { data, error } = await supabase.from('breakdowns').insert([payload]).select();
+      if (error) throw error;
+
+      setToast({ type: 'success', text: 'Breakdown logged.' });
+      // reset quick form
+      setNbEquipment('');
+      setNbCategory('');
+      setNbDesc('');
+      const then = new Date();
+      setNbDate(then.toISOString().slice(0, 10));
+      setNbTime(then.toTimeString().slice(0, 5));
+
+      // reload list to include newly created entry
+      await loadBreakdowns(0, statusFilter, categoryFilter, searchText);
+    } catch (e) {
+      setToast({ type: 'error', text: 'Create failed: ' + (e.message || String(e)) });
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -383,6 +442,51 @@ export default function Admin() {
         </div>
       </div>
 
+      {/* Quick new breakdown form for supervisors */}
+      <div className="card admin-card" style={{ marginTop: 12 }}>
+        <div className="admin-card-head">
+          <div>
+            <h3 style={{ margin: 0 }}>Log a breakdown</h3>
+            <div className="small admin-muted">Supervisors can quickly create a breakdown entry.</div>
+          </div>
+          <span className="badge">Quick</span>
+        </div>
+
+        <div style={{ padding: 12, display: 'grid', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 8 }}>
+            <input
+              className="input"
+              placeholder="Equipment (e.g. Conveyor A)"
+              value={nbEquipment}
+              onChange={(e) => setNbEquipment(e.target.value)}
+            />
+
+            <select className="input" value={nbCategory} onChange={(e) => setNbCategory(e.target.value)}>
+              <option value="">Category</option>
+              <option value="Mechanical">Mechanical</option>
+              <option value="Electrical">Electrical</option>
+              <option value="Hydraulic">Hydraulic</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '120px 120px 1fr', gap: 8 }}>
+            <input className="input" type="date" value={nbDate} onChange={(e) => setNbDate(e.target.value)} />
+            <input className="input" type="time" value={nbTime} onChange={(e) => setNbTime(e.target.value)} />
+            <input className="input" placeholder="Short notes (optional)" value={nbDesc} onChange={(e) => setNbDesc(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn primary" disabled={!user || creating} onClick={createBreakdown}>
+              {creating ? 'Logging…' : 'Log breakdown'}
+            </button>
+            <button className="btn ghost" onClick={() => { setNbEquipment(''); setNbCategory(''); setNbDesc(''); }}>
+              Clear
+            </button>
+            <div className="small admin-muted">Auto-fills: today / now / your account as reporter.</div>
+          </div>
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="filters">
         <div className="filters-left">
@@ -502,7 +606,7 @@ export default function Admin() {
         confirmLabel="Close"
       >
         <div>
-          <div className="small admin-muted">Describe the resolution (min 6 characters)</div>
+              <div className="small admin-muted">Closed Out Action — the action they took to close the breakdown (min 6 characters)</div>
           <textarea
             value={resolutionText}
             onChange={(e) => setResolutionText(e.target.value)}
