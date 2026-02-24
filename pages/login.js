@@ -30,8 +30,8 @@ export default function Login() {
       });
       if (error) throw error;
 
-      // Optional: redirect to where user came from, otherwise admin
-      const next = router.query.next ? String(router.query.next) : '/admin';
+      // Optional: redirect to where user came from, otherwise dashboard
+      const next = router.query.next ? String(router.query.next) : '/dashboard';
       router.push(next);
     } catch (err) {
       setError(err?.message || String(err));

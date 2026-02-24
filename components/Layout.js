@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 import QuickLog from './QuickLog';
+import { useTheme } from '../context/ThemeContext';
 
 // Minimal inline icons (no extra deps)
 function Icon({ name, size = 18 }) {
@@ -76,6 +77,7 @@ export default function Layout({
   const [role, setRole] = useState('operator');
   const [authLoading, setAuthLoading] = useState(true);
   const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
 
   const isAuthPage = router.pathname === '/login';
   const shouldShowShell = showShell && !isAuthPage;
@@ -266,6 +268,9 @@ export default function Layout({
                 Sign in
               </Link>
             )}
+            <button onClick={toggleTheme} className="btn ghost" style={{ marginLeft: 8 }}>
+              {theme === 'light' ? 'Dark' : 'Light'} Mode
+            </button>
           </div>
         </div>
       )}

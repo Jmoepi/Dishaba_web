@@ -17,7 +17,12 @@
   --font-xl: 20px;
   --font-2xl: 28px;
 
-  /* Color tokens - light */
+  --shadow-sm: 0 6px 18px rgba(2, 6, 23, 0.06);
+  --shadow-lg: 0 20px 60px rgba(2, 6, 23, 0.08);
+  --radius: 10px;
+}
+
+[data-theme='light'] {
   --bg: #f6f8fb;
   --surface: #ffffff;
   --border: #e6eef8;
@@ -28,28 +33,21 @@
   --success: #16a34a;
   --warn: #f59e0b;
   --danger: #ef4444;
-
-  --shadow-sm: 0 6px 18px rgba(2, 6, 23, 0.06);
-  --shadow-lg: 0 20px 60px rgba(2, 6, 23, 0.08);
-  --radius: 10px;
 }
 
-/* Dark mode overrides */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #071026;
-    --surface: #071428;
-    --border: rgba(255, 255, 255, 0.06);
-    --text: #e6eef8;
-    --muted: #94a3b8;
-    --primary: #4aa1ff;
-    --primary-600: #2b6cff;
-    --success: #22c55e;
-    --warn: #f59e0b;
-    --danger: #fb7185;
-    --shadow-sm: 0 6px 18px rgba(2, 6, 23, 0.45);
-    --shadow-lg: 0 24px 80px rgba(2, 6, 23, 0.6);
-  }
+[data-theme='dark'] {
+  --bg: #071026;
+  --surface: #071428;
+  --border: rgba(255, 255, 255, 0.06);
+  --text: #e6eef8;
+  --muted: #94a3b8;
+  --primary: #4aa1ff;
+  --primary-600: #2b6cff;
+  --success: #22c55e;
+  --warn: #f59e0b;
+  --danger: #fb7185;
+  --shadow-sm: 0 6px 18px rgba(2, 6, 23, 0.45);
+  --shadow-lg: 0 24px 80px rgba(2, 6, 23, 0.6);
 }
 
 html,
@@ -684,33 +682,30 @@ textarea:focus {
   color: var(--text);
 }
 
-/* Improve prominence of KPI values on dark backgrounds */
-@media (prefers-color-scheme: dark) {
-  .kpi2 {
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
-    border: 1px solid rgba(255,255,255,0.04);
-  }
+[data-theme='dark'] .kpi2 {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
+  border: 1px solid rgba(255,255,255,0.04);
+}
 
-  .kpi2-value {
-    color: var(--text);
-    font-size: 28px;
-    letter-spacing: -0.5px;
-    text-shadow: 0 6px 24px rgba(2,6,23,0.6);
-  }
+[data-theme='dark'] .kpi2-value {
+  color: var(--text);
+  font-size: 28px;
+  letter-spacing: -0.5px;
+  text-shadow: 0 6px 24px rgba(2,6,23,0.6);
+}
 
-  .kpi2-hint,
-  .kpi2-label {
-    color: var(--muted);
-  }
+[data-theme='dark'] .kpi2-hint,
+[data-theme='dark'] .kpi2-label {
+  color: var(--muted);
+}
 
-  .kpi2-sub {
-    color: var(--text);
-    opacity: 0.98;
-  }
+[data-theme='dark'] .kpi2-sub {
+  color: var(--text);
+  opacity: 0.98;
+}
 
-  .kpi2-primary {
-    border-color: rgba(74,161,255,0.08);
-  }
+[data-theme='dark'] .kpi2-primary {
+  border-color: rgba(74,161,255,0.08);
 }
 
 /* Main dashboard grid */
