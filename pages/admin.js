@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { supabase } from '../lib/supabaseClient';
 import BreakdownTable from '../components/BreakdownTable';
 import Layout from '../components/Layout';
+import ViewDetailsModal from '../components/ViewDetailsModal';
 
 const PAGE_SIZE = 15;
 
@@ -55,6 +56,7 @@ export default function Admin() {
   const [searchText, setSearchText] = useState('');
 
   const [toast, setToast] = useState(null);
+  const [viewingItem, setViewingItem] = useState(null);
 
   const clearToast = () => setToast(null);
 
@@ -193,8 +195,6 @@ export default function Admin() {
     loadBreakdowns(0, statusFilter, categoryFilter, searchText);
   };
 
-  const roleBadgeTone = role === 'admin' ? 'pill-danger' : role === 'supervisor' ? 'pill-warn' : 'pill-ok';
-
   return (
     <Layout
       title="Breakdown Log — Dishaba Mine"
@@ -202,7 +202,6 @@ export default function Admin() {
       pageDescription="Live breakdown and downtime logger"
       pageActions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {user && <span className={`pill ${roleBadgeTone}`}>{roleLabel}</span>}
           <Link href="/log" className="btn primary">Log new breakdown</Link>
         </div>
       }
@@ -306,6 +305,7 @@ export default function Admin() {
         ) : (
           <BreakdownTable
             rows={rows}
+            onViewDetails={setViewingItem}
             onReopen={async (row) => {
               try {
                 const { error } = await supabase.from('breakdowns').update({ status: 'Open' }).eq('id', row.id);
@@ -324,6 +324,11 @@ export default function Admin() {
       </div>
 
       <Toast toast={toast} onClose={clearToast} />
+      <ViewDetailsModal
+        open={!!viewingItem}
+        breakdown={viewingItem}
+        onClose={() => setViewingItem(null)}
+      />
     </Layout>
   );
 }

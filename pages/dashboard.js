@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import { supabase } from '../lib/supabaseClient';
 import Sparkline from '../components/Sparkline';
 import BreakdownTable from '../components/BreakdownTable';
+import ViewDetailsModal from '../components/ViewDetailsModal';
 import { formatMinutesHuman } from '../lib/formatters';
 
 // clamp removed (unused)
@@ -78,6 +79,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [rangeDays, setRangeDays] = useState(30);
   const [error, setError] = useState('');
+  const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -523,6 +525,7 @@ export default function Dashboard() {
               rows={rows.slice(0, 10)}
               currentUser={null}
               userRole={'supervisor'}
+              onViewDetails={item => setSelectedItem(item)}
               onRequestClose={() => {}}
             />
           </div>
@@ -533,6 +536,12 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <ViewDetailsModal
+        open={!!selectedItem}
+        onClose={() => setSelectedItem(null)}
+        breakdown={selectedItem}
+      />
     </Layout>
   );
 }
