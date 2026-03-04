@@ -3,7 +3,6 @@ import Head from 'next/head';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
-import QuickLog from './QuickLog';
 import { useTheme } from '../context/ThemeContext';
 
 function Icon({ name, size = 18 }) {
