@@ -74,6 +74,133 @@ function KpiCard({
   );
 }
 
+function ParetoChart({ data = [], height = 280 }) {
+  if (!data.length) return null;
+
+  const W = 980;
+  const H = 340;
+
+  const pad = { top: 18, right: 18, bottom: 86, left: 54 };
+  const innerW = W - pad.left - pad.right;
+  const innerH = H - pad.top - pad.bottom;
+
+  const maxCount = Math.max(...data.map((d) => d.count), 1);
+  const n = data.length;
+  const gap = Math.max(6, Math.floor(24 / Math.max(1, n / 8)));
+  const barW = (innerW - gap * (n - 1)) / n;
+
+  const xAt = (i) => pad.left + i * (barW + gap);
+  const yCount = (v) => pad.top + innerH - (v / maxCount) * innerH;
+
+  // Grid ticks (left axis)
+  const tickCount = 4;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) =>
+    Math.round((maxCount * i) / tickCount)
+  );
+
+  return (
+    <div style={{ width: "100%", height }}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        height="100%"
+        role="img"
+        aria-label="Bar chart of breakdown counts by equipment"
+        style={{ display: "block" }}
+      >
+        {/* Axes */}
+        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + innerH} stroke="var(--border)" />
+        <line
+          x1={pad.left}
+          y1={pad.top + innerH}
+          x2={W - pad.right}
+          y2={pad.top + innerH}
+          stroke="var(--border)"
+        />
+
+        {/* Grid + Left ticks */}
+        {ticks.map((t) => {
+          const y = yCount(t);
+          return (
+            <g key={t}>
+              <line
+                x1={pad.left}
+                y1={y}
+                x2={W - pad.right}
+                y2={y}
+                stroke="var(--border)"
+                opacity="0.55"
+              />
+              <text
+                x={pad.left - 10}
+                y={y + 4}
+                textAnchor="end"
+                fontSize="12"
+                fill="var(--muted, #64748b)"
+              >
+                {t}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Bars + labels */}
+        {data.map((d, i) => {
+          const x = xAt(i);
+          const y = yCount(d.count);
+          const h = pad.top + innerH - y;
+
+          return (
+            <g key={d.label}>
+              <rect
+                x={x}
+                y={y}
+                width={barW}
+                height={h}
+                rx="10"
+                fill="var(--primary)"
+                opacity="0.88"
+              >
+                <title>
+                  {d.label}: {d.count} breakdowns
+                </title>
+              </rect>
+
+              {/* Count on top of bar */}
+              <text
+                x={x + barW / 2}
+                y={Math.max(pad.top + 12, y - 8)}
+                textAnchor="middle"
+                fontSize="12"
+                fill="var(--muted, #64748b)"
+              >
+                {d.count}
+              </text>
+
+              {/* Rotated x label */}
+              <g transform={`translate(${x + barW / 2} ${pad.top + innerH + 16}) rotate(-35)`}>
+                <text
+                  textAnchor="end"
+                  fontSize="12"
+                  fill="var(--muted, #64748b)"
+                  style={{ userSelect: "none" }}
+                >
+                  {d.label}
+                </text>
+              </g>
+            </g>
+          );
+        })}
+
+        {/* Title-ish axis captions */}
+        <text x={pad.left} y={14} fontSize="12" fill="var(--muted, #64748b)">
+          Breakdown count
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -167,8 +294,9 @@ export default function Dashboard() {
     const dateLabels = Object.keys(timelineMap).sort();
     const dateVals = dateLabels.map((d) => timelineMap[d]);
 
-    // Downtime by equipment and by category
+    // Downtime by equipment and counts by equipment/category/section
     const byEquip = {};
+    const byEquipCount = {};
     const byCategory = {};
     const bySection = {};
 
@@ -178,6 +306,10 @@ export default function Dashboard() {
       const sec = r.section || 'Unknown';
 
       byEquip[eq] = (byEquip[eq] || 0) + (Number(r.downtime_minutes) || 0);
+
+      // ✅ count breakdown occurrences per equipment_item
+      byEquipCount[eq] = (byEquipCount[eq] || 0) + 1;
+
       byCategory[cat] = (byCategory[cat] || 0) + 1;
       bySection[sec] = (bySection[sec] || 0) + 1;
     }
@@ -188,6 +320,24 @@ export default function Dashboard() {
 
     const topCat = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0];
     const topSec = Object.entries(bySection).sort((a, b) => b[1] - a[1])[0];
+
+    // ✅ Pareto: breakdown count by equipment_item (sorted) + cumulative %
+    const equipEntries = Object.entries(byEquipCount).sort((a, b) => b[1] - a[1]);
+
+    const totalEquipBreakdowns = equipEntries.reduce((s, [, c]) => s + c, 0) || 1;
+
+    // keep chart readable: top 12 + "Other"
+    const MAX_BARS = 12;
+    let topEntries = equipEntries.slice(0, MAX_BARS);
+    const otherCount = equipEntries.slice(MAX_BARS).reduce((s, [, c]) => s + c, 0);
+    if (otherCount > 0) topEntries = [...topEntries, ['Other', otherCount]];
+
+    const paretoEquip = topEntries.map(([label, count]) => {
+      return {
+        label,
+        count,
+      };
+    });
 
     // “Change vs prev” (placeholder unless you fetch prevRows)
     const prevTotal = prevRows.length;
@@ -215,6 +365,7 @@ export default function Dashboard() {
       openSev,
       totalDelta,
       downtimeDelta,
+      paretoEquip,
     };
   }, [rows, rangeDays]);
 
@@ -356,50 +507,79 @@ export default function Dashboard() {
 
       {/* Main Grid */}
       <div className="dash-grid">
-        {/* Trend */}
-        <div className="card dash-card">
-          <div className="dash-card-head">
-            <div>
-              <h3 style={{ margin: 0 }}>Breakdowns trend</h3>
-              <div className="small muted">Daily counts for the selected range</div>
+        {/* Left column (Trend + Pareto) */}
+        <div style={{ display: 'grid', gap: 12 }}>
+          {/* Trend */}
+          <div className="card dash-card">
+            <div className="dash-card-head">
+              <div>
+                <h3 style={{ margin: 0 }}>Breakdowns trend</h3>
+                <div className="small muted">Daily counts for the selected range</div>
+              </div>
+              <div className="small muted">Last {rangeDays} days</div>
             </div>
-            <div className="small muted">Last {rangeDays} days</div>
-          </div>
 
-          <div style={{ height: 170, marginTop: 12 }}>
-            {loading ? (
-              <div className="skeleton shape-lg" />
-            ) : sparkVals.length ? (
-              <Sparkline values={sparkVals} labels={sparkLabels} color="var(--primary)" height={130} />
-            ) : (
-              <div className="empty-mini">
-                <div style={{ fontWeight: 900 }}>No data</div>
-                <div className="small muted">Log breakdowns to see trend lines here.</div>
+            <div style={{ height: 170, marginTop: 12 }}>
+              {loading ? (
+                <div className="skeleton shape-lg" />
+              ) : sparkVals.length ? (
+                <Sparkline values={sparkVals} labels={sparkLabels} color="var(--primary)" height={130} />
+              ) : (
+                <div className="empty-mini">
+                  <div style={{ fontWeight: 900 }}>No data</div>
+                  <div className="small muted">Log breakdowns to see trend lines here.</div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick insight strip - always show when not loading to avoid empty gap */}
+            {!loading && (
+              <div className="insight-strip">
+                <div className="insight">
+                  <div className="small muted">Avg downtime</div>
+                  <div style={{ fontWeight: 900 }}>
+                    {agg.total ? formatMinutesHuman(agg.avgDowntime) : '—'}
+                  </div>
+                </div>
+                <div className="insight">
+                  <div className="small muted">Open vs Closed</div>
+                  <div style={{ fontWeight: 900 }}>{agg.total ? `${agg.open} / ${agg.closed}` : 'No data'}</div>
+                </div>
+                <div className="insight">
+                  <div className="small muted">Attention</div>
+                  <div style={{ fontWeight: 900, color: agg.attentionCount ? 'var(--danger)' : 'inherit' }}>
+                    {agg.attentionCount || (agg.total ? 0 : '—')}
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Quick insight strip - always show when not loading to avoid empty gap */}
-          {!loading && (
-            <div className="insight-strip">
-              <div className="insight">
-                <div className="small muted">Avg downtime</div>
-                <div style={{ fontWeight: 900 }}>
-                  {agg.total ? formatMinutesHuman(agg.avgDowntime) : '—'}
+          {/* ✅ Pareto */}
+          <div className="card dash-card">
+            <div className="dash-card-head">
+              <div>
+                <h3 style={{ margin: 0 }}>breakdowns by equipment</h3>
+                <div className="small muted">
+                  Number of breakdowns for the top equipment
                 </div>
               </div>
-              <div className="insight">
-                <div className="small muted">Open vs Closed</div>
-                <div style={{ fontWeight: 900 }}>{agg.total ? `${agg.open} / ${agg.closed}` : 'No data'}</div>
-              </div>
-              <div className="insight">
-                <div className="small muted">Attention</div>
-                <div style={{ fontWeight: 900, color: agg.attentionCount ? 'var(--danger)' : 'inherit' }}>
-                  {agg.attentionCount || (agg.total ? 0 : '—')}
-                </div>
-              </div>
+              <div className="small muted">Last {rangeDays} days</div>
             </div>
-          )}
+
+            <div style={{ marginTop: 10 }}>
+              {loading ? (
+                <div className="skeleton shape-lg" />
+              ) : agg.paretoEquip?.length ? (
+                <ParetoChart data={agg.paretoEquip} height={300} />
+              ) : (
+                <div className="empty-mini">
+                  <div style={{ fontWeight: 900 }}>No data</div>
+                  <div className="small muted">Log breakdowns to see Pareto insights here.</div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Right column */}
