@@ -59,10 +59,10 @@ export default function Layout({
   const NAV = useMemo(() => {
     const privileged = isPrivileged(role);
     return [
-      { href: '/', label: 'Home', icon: 'dashboard', show: true },
       { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', show: true },
-      { href: '/admin', label: 'Breakdowns', icon: 'wrench', show: true },
+      { href: '/admin', label: 'logsheet', icon: 'wrench', show: true },
       { href: '/analytics', label: 'Analytics', icon: 'chart', show: true },
+      { href: '/log', label: 'New Breakdown', icon: 'shield', show: true },
       { href: '/admin/tools', label: 'Admin Tools', icon: 'shield', show: privileged },
     ].filter((x) => x.show);
   }, [role]);
@@ -200,7 +200,7 @@ export default function Layout({
         </main>
       </div>
 
-      {shouldShowShell && <QuickLog />}
+    {/*  {shouldShowShell && <QuickLog />} */}
 
       {shouldShowShell && (
         <footer style={{ textAlign: 'center', padding: '18px 0', color: 'var(--muted)' }}>
