@@ -113,15 +113,15 @@ export default function BreakdownTable({
                       try {
                         onEdit(r);
                       } catch (e) {
-                        console.error('Edit failed:', e);
+                        console.error('Approve failed:', e);
                         setToast?.({
                           type: 'error',
-                          text: 'Edit failed: ' + (e.message || e),
+                          text: 'Approve failed: ' + (e.message || e),
                         });
                       }
                     }}
                   >
-                    Edit & Close
+                    Approve
                   </button>
                 )}
                 {r.status === 'Open' ? (

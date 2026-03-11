@@ -51,7 +51,7 @@ export default async function handler(req, res) {
       .maybeSingle();
     const role = profile?.role || 'operator';
 
-    // Fetch the breakdown to check owner and start_time
+    // Fetch the breakdown
     const { data: breakdown, error: fetchErr } = await supabaseAdmin
       .from('breakdowns')
       .select('*')
@@ -63,7 +63,13 @@ export default async function handler(req, res) {
     }
     if (!breakdown) return res.status(404).json({ error: 'Not found' });
 
+    // Only allow closing if status is 'Open'
+    if (breakdown.status !== 'Open') {
+      return res.status(400).json({ error: 'Only open breakdowns can be closed' });
+    }
+
     const isOwner = breakdown.reported_by === uid;
+    // Operators can close their own, admins/supervisors can close any
     if (!(['supervisor', 'admin'].includes(role) || (role === 'operator' && isOwner))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -94,39 +100,27 @@ export default async function handler(req, res) {
     const mins = Math.max(0, Math.round((endDate - startDate) / 60000));
 
     // Prepare update payload
+    const closerName = userResp.user?.user_metadata?.full_name || userResp.user?.user_metadata?.name || userResp.user?.email || null;
     const basePayload = {
       status: 'Closed',
       resolution: resolution.trim(),
       end_time: endHHmm,
       downtime_minutes: mins,
       updated_at: new Date().toISOString(),
-    };
-
-    // Try to include who closed the incident (best-effort; retry without if column missing)
-    const closerName = userResp.user?.user_metadata?.full_name || userResp.user?.user_metadata?.name || userResp.user?.email || null;
-    const closerPayload = {
       closed_by: uid,
       closed_by_name: closerName,
       closed_by_email: userResp.user?.email || null,
     };
 
-    let updateErr = null;
-    try {
-      const { error } = await supabaseAdmin.from('breakdowns').update({ ...basePayload, ...closerPayload }).eq('id', id);
-      updateErr = error;
-    } catch (e) {
-      updateErr = e;
-    }
+    // Update the breakdown
+    const { error: updateErr } = await supabaseAdmin
+      .from('breakdowns')
+      .update(basePayload)
+      .eq('id', id);
 
-    // If update failed due to missing columns in the schema, retry without the closer fields
     if (updateErr) {
-      const msg = String(updateErr.message || updateErr);
-      if (msg.includes("Could not find the '") || msg.includes('PGRST204')) {
-        const { error } = await supabaseAdmin.from('breakdowns').update(basePayload).eq('id', id);
-        if (error) throw error;
-      } else {
-        throw updateErr;
-      }
+      console.error('Failed to update breakdown', updateErr);
+      throw updateErr;
     }
 
     // Audit log insert (best-effort)
@@ -138,11 +132,28 @@ export default async function handler(req, res) {
             user_id: uid,
             action: 'close_breakdown',
             target_id: id,
-            details: { resolution, downtime_minutes: mins },
+            details: { resolution, downtime_minutes: mins, closed_by: closerName },
           },
         ]);
     } catch (e) {
       console.warn('Audit log failed', e);
+    }
+
+    // Record status history
+    try {
+      await supabaseAdmin
+        .from('breakdown_status_history')
+        .insert([{
+          breakdown_id: id,
+          old_status: 'Open',
+          new_status: 'Closed',
+          changed_by: uid,
+          changed_by_name: closerName,
+          reason: resolution.trim(),
+          created_at: new Date().toISOString(),
+        }]);
+    } catch (e) {
+      console.warn('Status history insert failed:', e);
     }
 
     return res.status(200).json({ ok: true, downtime_minutes: mins });

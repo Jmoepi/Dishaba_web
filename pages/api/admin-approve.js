@@ -30,13 +30,8 @@ export default async function handler(req, res) {
   const token = req.headers.authorization?.replace('Bearer ', '') || null;
   if (!token) return res.status(401).json({ error: 'Missing token' });
 
-  const { id, reasonCategory, reasonDetails } = req.body || {};
-  if (!id || !reasonCategory || !reasonDetails) {
-    return res.status(400).json({ error: 'Missing required fields: id, reasonCategory, reasonDetails' });
-  }
-  if (reasonDetails.trim().length < 10) {
-    return res.status(400).json({ error: 'Reason details must be at least 10 characters' });
-  }
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Missing breakdown id' });
 
   try {
     const { data: userResp, error: userErr } = await supabaseAdmin.auth.getUser(token);
@@ -46,7 +41,7 @@ export default async function handler(req, res) {
     }
     const uid = userResp.user.id;
 
-    // Only admins can reopen
+    // Only admins can approve
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('role')
@@ -55,7 +50,7 @@ export default async function handler(req, res) {
     const role = profile?.role || 'operator';
 
     if (role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can reopen breakdowns' });
+      return res.status(403).json({ error: 'Only admins can approve breakdowns' });
     }
 
     // Fetch the breakdown
@@ -70,22 +65,17 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch breakdown' });
     }
     if (!breakdown) return res.status(404).json({ error: 'Breakdown not found' });
-    if (breakdown.status !== 'Closed') {
-      return res.status(400).json({ error: 'Only closed breakdowns can be reopened' });
-    }
+    if (breakdown.status !== 'Pending') return res.status(400).json({ error: 'Only pending breakdowns can be approved' });
 
-    const reopenerName = userResp.user?.user_metadata?.full_name || userResp.user?.user_metadata?.name || userResp.user?.email || null;
+    const approverName = userResp.user?.user_metadata?.full_name || userResp.user?.user_metadata?.name || userResp.user?.email || null;
 
     // Update status to Open
     const { error: updateErr } = await supabaseAdmin
       .from('breakdowns')
       .update({
         status: 'Open',
-        resolution: null,
-        end_time: null,
-        downtime_minutes: null,
-        reopened_by: uid,
-        reopened_by_name: reopenerName,
+        approved_by: uid,
+        approved_by_name: approverName,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
@@ -95,17 +85,17 @@ export default async function handler(req, res) {
       throw updateErr;
     }
 
-    // Record status history with reason
+    // Record status history
     try {
       await supabaseAdmin
         .from('breakdown_status_history')
         .insert([{
           breakdown_id: id,
-          old_status: 'Closed',
+          old_status: 'Pending',
           new_status: 'Open',
           changed_by: uid,
-          changed_by_name: reopenerName,
-          reason: `[${reasonCategory}] ${reasonDetails}`,
+          changed_by_name: approverName,
+          reason: 'Breakdown approved by admin',
           created_at: new Date().toISOString(),
         }]);
     } catch (e) {
@@ -118,15 +108,15 @@ export default async function handler(req, res) {
         .from('admin_audit_logs')
         .insert([{
           user_id: uid,
-          action: 'reopen_breakdown',
+          action: 'approve_breakdown',
           target_id: id,
-          details: { reason_category: reasonCategory, reason_details: reasonDetails, reopened_by: reopenerName },
+          details: { approved_by: approverName },
         }]);
     } catch (e) {
       console.warn('Audit log failed', e);
     }
 
-    return res.status(200).json({ ok: true, message: 'Breakdown reopened and moved to Open status' });
+    return res.status(200).json({ ok: true, message: 'Breakdown approved and moved to Open status' });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: String(e) });
