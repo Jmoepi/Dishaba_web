@@ -236,7 +236,7 @@ export default function LogPage() {
       shift: shift || null,
       downtime_minutes: downtimeMinutes,
       delay_time_minutes: delayMinutes,
-      status: "Open",
+      status: "Pending",
     };
 
     setReviewData(payload);

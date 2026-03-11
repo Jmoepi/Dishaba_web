@@ -48,10 +48,14 @@ export default async function handler(req, res) {
     const status = req.query.status || '';
     const category = req.query.category || '';
     const search = req.query.search || '';
+    const supervisor = req.query.supervisor || '';
+    const event_type = req.query.event_type || '';
     const start_date = req.query.start_date || null;
     const end_date = req.query.end_date || null;
+    const min_downtime = req.query.min_downtime ? parseInt(req.query.min_downtime, 10) : null;
+    const max_downtime = req.query.max_downtime ? parseInt(req.query.max_downtime, 10) : null;
 
-    const cacheKey = JSON.stringify({ page, limit, status, category, search });
+    const cacheKey = JSON.stringify({ page, limit, status, category, search, supervisor, event_type, start_date, end_date, min_downtime, max_downtime });
     const cached = CACHE.get(cacheKey);
     if (cached && now - cached.ts < CACHE_TTL_MS) {
       return res.status(200).json({ rows: cached.data.rows, page, hasMore: cached.data.hasMore });
@@ -64,11 +68,20 @@ export default async function handler(req, res) {
       .select('*')
       .order('occurred_on', { ascending: false })
       .range(from, to);
+    
     if (status) query = query.eq('status', status);
     if (category) query = query.eq('category', category);
-    if (search) query = query.ilike('equipment_item', `%${search}%`);
+    if (supervisor) query = query.ilike('supervisor', `%${supervisor}%`);
+    if (event_type) query = query.eq('event_type', event_type);
     if (start_date) query = query.gte('occurred_on', start_date);
     if (end_date) query = query.lte('occurred_on', end_date);
+    if (min_downtime !== null) query = query.gte('downtime_minutes', min_downtime);
+    if (max_downtime !== null) query = query.lte('downtime_minutes', max_downtime);
+    
+    // Multi-field search: equipment, description, section, reported_by_name
+    if (search) {
+      query = query.or(`equipment_item.ilike.%${search}%,description.ilike.%${search}%,section.ilike.%${search}%,reported_by_name.ilike.%${search}%`);
+    }
 
     const { data, error } = await query;
     if (error) throw error;

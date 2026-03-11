@@ -1,0 +1,841 @@
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '../lib/supabaseClient';
+import BreakdownTable from '../components/BreakdownTable';
+import Layout from '../components/Layout';
+import ViewDetailsModal from '../components/ViewDetailsModal';
+
+const PAGE_SIZE = 15;
+
+function canExport(role) {
+  return ['supervisor', 'admin'].includes(role);
+}
+
+function canManageRoles(role) {
+  return role === 'admin';
+}
+
+function Toast({ toast, onClose }) {
+  if (!toast) return null;
+
+  const icon =
+    toast.type === 'error' ? '⛔' : toast.type === 'success' ? '✅' : 'ℹ️';
+
+  return (
+    <div className={`toast toast-${toast.type}`} role="status" aria-live="polite">
+      <div className="toast-inner">
+        <div className="toast-icon" aria-hidden="true">
+          {icon}
+        </div>
+        <div className="toast-text">
+          <div className="toast-title">
+            {toast.type === 'error' ? 'Error' : toast.type === 'success' ? 'Success' : 'Info'}
+          </div>
+          <div className="toast-msg">{toast.text}</div>
+        </div>
+        <button className="btn ghost small" onClick={onClose} aria-label="Close toast">
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function Admin() {
+  const [user, setUser] = useState(null);
+  const [rows, setRows] = useState([]);
+
+  const [loading, setLoading] = useState(false);
+  const [role, setRole] = useState('operator');
+
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  const [statusFilter, setStatusFilter] = useState('Pending');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [searchText, setSearchText] = useState('');
+
+  // Advanced filters
+  const [supervisorFilter, setSupervisorFilter] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState('');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+  const [minDowntimeFilter, setMinDowntimeFilter] = useState('');
+  const [maxDowntimeFilter, setMaxDowntimeFilter] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [presets, setPresets] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('breakdown_presets') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const [presetName, setPresetName] = useState('');
+
+  const [toast, setToast] = useState(null);
+  const [viewingItem, setViewingItem] = useState(null);
+  const [statusHistory, setStatusHistory] = useState({});
+  const [editingItem, setEditingItem] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+
+  const clearToast = () => setToast(null);
+
+  // Helper function to reload breakdowns with all active filters
+  const reloadBreakdowns = (pageIndex = 0) => {
+    loadBreakdowns(pageIndex, statusFilter, categoryFilter, searchText, supervisorFilter, eventTypeFilter, minDowntimeFilter, maxDowntimeFilter, startDateFilter, endDateFilter);
+  };
+
+  // Clear all filters
+  const clearAllFilters = () => {
+    setStatusFilter('Pending');
+    setCategoryFilter('');
+    setSearchText('');
+    setSupervisorFilter('');
+    setEventTypeFilter('');
+    setMinDowntimeFilter('');
+    setMaxDowntimeFilter('');
+    setStartDateFilter('');
+    setEndDateFilter('');
+    setPage(0);
+    loadBreakdowns(0, 'Pending', '', '', '', '', '', '', '', '');
+  };
+
+  // Check if any advanced filters are active
+  const hasActiveFilters = () => {
+    return supervisorFilter || eventTypeFilter || minDowntimeFilter || maxDowntimeFilter || startDateFilter || endDateFilter;
+  };
+
+  // Save current filter combo to presets
+  const saveFilterPreset = () => {
+    if (!presetName.trim()) {
+      setToast({ type: 'error', text: 'Please enter a preset name.' });
+      return;
+    }
+
+    const newPresets = {
+      ...presets,
+      [presetName]: {
+        statusFilter,
+        categoryFilter,
+        searchText,
+        supervisorFilter,
+        eventTypeFilter,
+        minDowntimeFilter,
+        maxDowntimeFilter,
+        startDateFilter,
+        endDateFilter,
+      },
+    };
+    setPresets(newPresets);
+    localStorage.setItem('breakdown_presets', JSON.stringify(newPresets));
+    setPresetName('');
+    setToast({ type: 'success', text: `Preset "${presetName}" saved!` });
+  };
+
+  // Load a preset
+  const loadPreset = (name) => {
+    const preset = presets[name];
+    if (!preset) return;
+
+    setStatusFilter(preset.statusFilter);
+    setCategoryFilter(preset.categoryFilter);
+    setSearchText(preset.searchText);
+    setSupervisorFilter(preset.supervisorFilter);
+    setEventTypeFilter(preset.eventTypeFilter);
+    setMinDowntimeFilter(preset.minDowntimeFilter);
+    setMaxDowntimeFilter(preset.maxDowntimeFilter);
+    setStartDateFilter(preset.startDateFilter);
+    setEndDateFilter(preset.endDateFilter);
+    setToast({ type: 'success', text: `Loaded preset: "${name}"` });
+  };
+
+  // Delete a preset
+  const deletePreset = (name) => {
+    const newPresets = { ...presets };
+    delete newPresets[name];
+    setPresets(newPresets);
+    localStorage.setItem('breakdown_presets', JSON.stringify(newPresets));
+    setToast({ type: 'success', text: `Preset deleted: "${name}"` });
+  };
+
+  const roleLabel = useMemo(() => {
+    if (role === 'admin') return 'Admin';
+    if (role === 'supervisor') return 'Supervisor';
+    return 'Operator';
+  }, [role]);
+
+  async function loadBreakdowns(pageIndex = 0, status = '', category = '', search = '', supervisor = '', eventType = '', minDowntime = '', maxDowntime = '', startDate = '', endDate = '') {
+    setLoading(true);
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session?.data?.session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+
+      const params = new URLSearchParams();
+      params.append('page', pageIndex);
+      if (status) params.append('status', status);
+      if (category) params.append('category', category);
+      if (search) params.append('search', search);
+      if (supervisor) params.append('supervisor', supervisor);
+      if (eventType) params.append('event_type', eventType);
+      if (minDowntime) params.append('min_downtime', minDowntime);
+      if (maxDowntime) params.append('max_downtime', maxDowntime);
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+
+      const res = await fetch(`/api/breakdowns?${params.toString()}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to load breakdowns (${res.status})`);
+      }
+      const data = await res.json();
+
+      setRows(data.rows || []);
+      setHasMore(data.hasMore || false);
+      setPage(pageIndex);
+    } catch (e) {
+      setToast({ type: 'error', text: e.message || String(e) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (mounted) setUser(data.user || null);
+
+      if (data?.user?.id) {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        if (mounted) {
+          if (error) setRole('operator');
+          else setRole(profile?.role || 'operator');
+        }
+      }
+
+      await loadBreakdowns(0, statusFilter, categoryFilter, searchText);
+    })();
+
+    const handler = () => {
+      loadBreakdowns(0, statusFilter, categoryFilter, searchText).catch(() => {});
+    };
+    window.addEventListener('breakdown:created', handler);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('breakdown:created', handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-load breakdowns when any filter changes
+  useEffect(() => {
+    reloadBreakdowns(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, categoryFilter, searchText, supervisorFilter, eventTypeFilter, minDowntimeFilter, maxDowntimeFilter, startDateFilter, endDateFilter]);
+
+  const doExport = async () => {
+    if (!user) return setToast({ type: 'error', text: 'Sign in first.' });
+    if (!canExport(role)) return setToast({ type: 'error', text: 'Only supervisors/admins can export.' });
+
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session?.data?.session?.access_token;
+      if (!token) throw new Error('No session token.');
+
+      const r = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ start_date: '1970-01-01', end_date: '2099-12-31' }),
+      });
+
+      if (!r.ok) {
+        const msg = (await r.json().catch(() => r.text()))?.error || `${r.status} ${r.statusText}`;
+        setToast({ type: 'error', text: 'Export failed: ' + msg });
+        return;
+      }
+
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'breakdowns_export.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setToast({ type: 'success', text: 'Export started. Check your downloads.' });
+    } catch (e) {
+      setToast({ type: 'error', text: 'Export failed: ' + (e.message || e) });
+    }
+  };
+
+  const updateRole = async (newRole) => {
+    if (!user?.id) return setToast({ type: 'error', text: 'Sign in first.' });
+    if (!canManageRoles(role)) {
+      setToast({ type: 'error', text: 'Only Admin can change roles.' });
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', user.id);
+      if (error) throw error;
+      setRole(newRole);
+      setToast({ type: 'success', text: 'Role updated.' });
+    } catch (e) {
+      setToast({ type: 'error', text: e.message || String(e) });
+    }
+  };
+
+  const loadStatusHistory = async (breakdownId) => {
+    try {
+      const r = await fetch(`/api/breakdown-comments?breakdown_id=${breakdownId}&history=true`);
+      if (!r.ok) throw new Error('Failed to load history');
+      const { data } = await r.json();
+      setStatusHistory(prev => ({ ...prev, [breakdownId]: data }));
+    } catch (e) {
+      console.error('Failed to load status history:', e);
+    }
+  };
+
+  const handleViewDetails = (item) => {
+    setViewingItem(item);
+    if (!statusHistory[item.id]) {
+      loadStatusHistory(item.id);
+    }
+  };
+
+  const onPrev = () => {
+    if (page > 0) loadBreakdowns(page - 1, statusFilter, categoryFilter, searchText, supervisorFilter, eventTypeFilter, minDowntimeFilter, maxDowntimeFilter, startDateFilter, endDateFilter);
+  };
+  const onNext = () => {
+    if (hasMore) loadBreakdowns(page + 1, statusFilter, categoryFilter, searchText, supervisorFilter, eventTypeFilter, minDowntimeFilter, maxDowntimeFilter, startDateFilter, endDateFilter);
+  };
+
+  const applyFilters = (e) => {
+    e.preventDefault();
+    loadBreakdowns(0, statusFilter, categoryFilter, searchText, supervisorFilter, eventTypeFilter, minDowntimeFilter, maxDowntimeFilter, startDateFilter, endDateFilter);
+  };
+
+  const startEdit = (breakdown) => {
+    setEditingItem(breakdown);
+    setEditFormData({ ...breakdown });
+  };
+
+  const handleEditChange = (field, value) => {
+    setEditFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const submitEdit = async () => {
+    if (!user?.id) return setToast({ type: 'error', text: 'Sign in first.' });
+    if (role !== 'admin') return setToast({ type: 'error', text: 'Only admins can edit.' });
+
+    try {
+      setLoading(true);
+      const session = await supabase.auth.getSession();
+      const token = session?.data?.session?.access_token;
+      if (!token) throw new Error('No session token.');
+
+      const r = await fetch('/api/admin-close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          id: editingItem.id,
+          data: editFormData,
+        }),
+      });
+
+      const result = await r.json();
+      if (!r.ok) {
+        throw new Error(result.error || `${r.status} ${r.statusText}`);
+      }
+
+      setToast({ type: 'success', text: 'Breakdown saved and closed.' });
+      setEditingItem(null);
+      await loadBreakdowns(page, statusFilter, categoryFilter, searchText);
+    } catch (e) {
+      setToast({ type: 'error', text: 'Save failed: ' + (e.message || e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Layout
+      title="Breakdown Log — Dishaba Mine"
+      pageTitle="Breakdown Log"
+      pageDescription="Live breakdown and downtime logger"
+      pageActions={
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Link href="/log" className="btn primary">Log new breakdown</Link>
+        </div>
+      }
+    >
+      <div className="admin-grid">
+        <div className="card admin-card">
+          <div className="admin-card-head">
+            <div><h3 style={{ margin: 0 }}>Permissions</h3></div>
+          </div>
+          <div className="admin-row">
+            <div className="admin-field">
+              <div className="small admin-muted">Your current role</div>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>{roleLabel}</div>
+            </div>
+            <div className="admin-field">
+              <div className="small admin-muted">Change role (testing only)</div>
+              <select
+                value={role}
+                onChange={(e) => updateRole(e.target.value)}
+                className="input"
+                disabled={!user || !canManageRoles(role)}
+                title={!canManageRoles(role) ? 'Admin only' : ''}
+              >
+                <option value="operator">Operator</option>
+                <option value="supervisor">Supervisor</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="card admin-card">
+          <div className="admin-card-head">
+            <div><h3 style={{ margin: 0 }}>Export</h3></div>
+          </div>
+          <div className="admin-actions">
+            <button className="btn" onClick={doExport} disabled={!user || !canExport(role)}>
+              Export as CSV
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <form className="filters">
+        <div className="filters-left">
+          <div className="field">
+            <label className="small admin-muted" htmlFor="statusFilter">Status</label>
+            <select id="statusFilter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="Pending">Pending</option>
+              <option value="Open">Open</option>
+              <option value="Closed">Closed</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label className="small admin-muted" htmlFor="categoryFilter">Category</label>
+            <select id="categoryFilter" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="Mechanical">Mechanical</option>
+              <option value="Electrical">Electrical</option>
+              <option value="Hydraulic">Hydraulic</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div className="field grow">
+            <label className="small admin-muted" htmlFor="searchText">Multi-field search</label>
+            <input
+              id="searchText"
+              className="input"
+              placeholder="Search equipment, description, section, operator…"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="filters-right">
+          <button type="button" className="btn ghost" onClick={() => setShowAdvanced(!showAdvanced)}>
+            {showAdvanced ? '▼ Advanced' : '▶ Advanced'}
+          </button>
+          {(hasActiveFilters() || searchText) && (
+            <button type="button" className="btn ghost" onClick={clearAllFilters} style={{ color: '#ff6b6b' }}>
+              Clear All
+            </button>
+          )}
+        </div>
+      </form>
+
+      {/* Active Filter Tags */}
+      {(hasActiveFilters() || searchText || statusFilter !== 'Pending' || categoryFilter) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 0', alignItems: 'center' }}>
+          {statusFilter && statusFilter !== 'Pending' && (
+            <span style={{ background: '#e3f2fd', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Status: {statusFilter}
+              <button type="button" onClick={() => setStatusFilter('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+          {categoryFilter && (
+            <span style={{ background: '#f3e5f5', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Category: {categoryFilter}
+              <button type="button" onClick={() => setCategoryFilter('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+          {searchText && (
+            <span style={{ background: '#fff3e0', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Search: {searchText}
+              <button type="button" onClick={() => setSearchText('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+          {supervisorFilter && (
+            <span style={{ background: '#e8f5e9', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Supervisor: {supervisorFilter}
+              <button type="button" onClick={() => setSupervisorFilter('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+          {eventTypeFilter && (
+            <span style={{ background: '#ede7f6', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Type: {eventTypeFilter}
+              <button type="button" onClick={() => setEventTypeFilter('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+          {(minDowntimeFilter || maxDowntimeFilter) && (
+            <span style={{ background: '#fce4ec', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Downtime: {minDowntimeFilter || '0'}-{maxDowntimeFilter || '∞'} min
+              <button type="button" onClick={() => { setMinDowntimeFilter(''); setMaxDowntimeFilter(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+          {(startDateFilter || endDateFilter) && (
+            <span style={{ background: '#f1f8e9', padding: '4px 8px', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Date: {startDateFilter || '?'} to {endDateFilter || '?'}
+              <button type="button" onClick={() => { setStartDateFilter(''); setEndDateFilter(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>×</button>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Advanced Filters Panel */}
+      {showAdvanced && (
+        <div style={{ background: '#f9f9f9', padding: 12, borderRadius: 6, border: '1px solid #e0e0e0', marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+            <div className="field">
+              <label className="small admin-muted">Supervisor name</label>
+              <input
+                className="input"
+                placeholder="e.g. John Smith"
+                value={supervisorFilter}
+                onChange={(e) => setSupervisorFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label className="small admin-muted">Event type</label>
+              <select value={eventTypeFilter} onChange={(e) => setEventTypeFilter(e.target.value)}>
+                <option value="">All</option>
+                <option value="Breakdown">Breakdown</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Inspection">Inspection</option>
+              </select>
+            </div>
+
+            <div className="field">
+              <label className="small admin-muted">Min downtime (min)</label>
+              <input
+                type="number"
+                className="input"
+                placeholder="0"
+                value={minDowntimeFilter}
+                onChange={(e) => setMinDowntimeFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label className="small admin-muted">Max downtime (min)</label>
+              <input
+                type="number"
+                className="input"
+                placeholder="999"
+                value={maxDowntimeFilter}
+                onChange={(e) => setMaxDowntimeFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label className="small admin-muted">Start date</label>
+              <input
+                type="date"
+                className="input"
+                value={startDateFilter}
+                onChange={(e) => setStartDateFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label className="small admin-muted">End date</label>
+              <input
+                type="date"
+                className="input"
+                value={endDateFilter}
+                onChange={(e) => setEndDateFilter(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Presets Section */}
+          <div style={{ borderTop: '1px solid #e0e0e0', paddingTop: 12 }}>
+            <div style={{ marginBottom: 8 }}>
+              <label className="small admin-muted" style={{ display: 'block', marginBottom: 4 }}>Save this search as preset</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Critical Breakdowns"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button type="button" className="btn ghost" onClick={saveFilterPreset}>Save</button>
+              </div>
+            </div>
+
+            {Object.keys(presets).length > 0 && (
+              <div>
+                <label className="small admin-muted" style={{ display: 'block', marginBottom: 4 }}>Load saved presets</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Object.keys(presets).map((name) => (
+                    <div key={name} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <button type="button" className="btn ghost" onClick={() => loadPreset(name)} style={{ fontSize: 12 }}>
+                        {name}
+                      </button>
+                      <button type="button" onClick={() => deletePreset(name)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0, fontSize: 16 }}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Search Tips */}
+          <div style={{ borderTop: '1px solid #e0e0e0', paddingTop: 12, marginTop: 12 }}>
+            <details>
+              <summary style={{ cursor: 'pointer', fontSize: 12, color: '#666' }}>Search Tips</summary>
+              <ul style={{ fontSize: 11, color: '#999', marginTop: 8 }}>
+                <li><strong>Multi-field search:</strong> Searches equipment name, description, section, and operator name</li>
+                <li><strong>Supervisor:</strong> Filter by supervisor name (partial match)</li>
+                <li><strong>Event type:</strong> Filter by type (Breakdown, Maintenance, Inspection)</li>
+                <li><strong>Downtime:</strong> Find breakdowns lasting between min and max minutes</li>
+                <li><strong>Date range:</strong> Filter by occurrence date</li>
+                <li><strong>Combine filters:</strong> Mix and match for powerful searches</li>
+              </ul>
+            </details>
+          </div>
+        </div>
+      )}
+
+      <div className="card admin-card" style={{ marginTop: 12 }}>
+        <div className="admin-card-head">
+          <div>
+            <h3 style={{ margin: 0 }}>Breakdown history</h3>
+            <div className="small admin-muted">
+              Page <strong>{page + 1}</strong> · Showing <strong>{rows.length}</strong> records
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn ghost" onClick={onPrev} disabled={page === 0 || loading}>Prev</button>
+            <button className="btn ghost" onClick={onNext} disabled={!hasMore || loading}>Next</button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 12 }}><div className="skeleton shape-lg" /></div>
+        ) : (
+          <BreakdownTable
+            rows={rows}
+            onViewDetails={handleViewDetails}
+            onEdit={startEdit}
+            onReopen={async (row) => {
+              try {
+                const { error } = await supabase.from('breakdowns').update({ status: 'Open' }).eq('id', row.id);
+                if (error) throw error;
+                setToast({ type: 'success', text: 'Reopened.' });
+                reloadBreakdowns(page);
+              } catch (e) {
+                setToast({ type: 'error', text: 'Reopen failed: ' + (e.message || e) });
+                throw e;
+              }
+            }}
+            userRole={role}
+            setToast={setToast}
+          />
+        )}
+      </div>
+
+      <Toast toast={toast} onClose={clearToast} />
+      <ViewDetailsModal
+        open={!!viewingItem}
+        breakdown={viewingItem}
+        onClose={() => setViewingItem(null)}
+        statusHistory={viewingItem?.id ? statusHistory[viewingItem.id] : null}
+      />
+      {editingItem && (
+        <div
+          className="modal-backdrop"
+          role="button"
+          tabIndex={0}
+          onClick={() => setEditingItem(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setEditingItem(null);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              width: '100%',
+              maxWidth: '600px',
+              maxHeight: '90vh',
+              padding: 20,
+              boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+              overflowY: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>Review & Approve Breakdown</h3>
+              <button type="button" className="btn ghost small" onClick={() => setEditingItem(null)}>
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label className="small admin-muted">Equipment Item</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editFormData.equipment_item || ''}
+                  onChange={(e) => handleEditChange('equipment_item', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="small admin-muted">Category</label>
+                <select
+                  className="input"
+                  value={editFormData.category || ''}
+                  onChange={(e) => handleEditChange('category', e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  <option value="Mechanical">Mechanical</option>
+                  <option value="Electrical">Electrical</option>
+                  <option value="Hydraulic">Hydraulic</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="small admin-muted">Occurred On</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={editFormData.occurred_on || ''}
+                  onChange={(e) => handleEditChange('occurred_on', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="small admin-muted">Start Time</label>
+                <input
+                  type="time"
+                  className="input"
+                  value={editFormData.start_time || ''}
+                  onChange={(e) => handleEditChange('start_time', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="small admin-muted">End Time</label>
+                <input
+                  type="time"
+                  className="input"
+                  value={editFormData.end_time || ''}
+                  onChange={(e) => handleEditChange('end_time', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="small admin-muted">Section</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editFormData.section || ''}
+                  onChange={(e) => handleEditChange('section', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="small admin-muted">Reported By</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editFormData.reported_by_name || ''}
+                  onChange={(e) => handleEditChange('reported_by_name', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="small admin-muted">Supervisor</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editFormData.supervisor || ''}
+                  onChange={(e) => handleEditChange('supervisor', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label className="small admin-muted">Description</label>
+              <textarea
+                className="input"
+                rows={4}
+                value={editFormData.description || ''}
+                onChange={(e) => handleEditChange('description', e.target.value)}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setEditingItem(null)}
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={submitEdit}
+                disabled={loading}
+              >
+                {loading ? 'Saving…' : 'Approve & Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+}

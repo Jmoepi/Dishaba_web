@@ -6,6 +6,7 @@ import Tooltip from './Tooltip';
 export default function BreakdownTable({
   rows = [],
   onViewDetails,
+  onEdit,
   onReopen,
   userRole = 'operator',
   setToast,
@@ -28,7 +29,9 @@ export default function BreakdownTable({
         {rows.map((r) => (
           <tr key={r.id}>
             <td data-label="Status">
-              {r.status === 'Open' ? (
+              {r.status === 'Pending' ? (
+                <span className="pill" style={{ background: '#FFA500', color: '#fff' }}>Pending</span>
+              ) : r.status === 'Open' ? (
                 <span className="pill open">Open</span>
               ) : (
                 <span className="pill closed">Closed</span>
@@ -66,7 +69,7 @@ export default function BreakdownTable({
               )}
             </td>
             <td data-label="Actions">
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="btn small"
@@ -95,6 +98,32 @@ export default function BreakdownTable({
                 >
                   View Details
                 </button>
+                {r.status === 'Pending' && userRole === 'admin' && (
+                  <button
+                    type="button"
+                    className="btn primary small"
+                    onClick={() => {
+                      if (typeof onEdit !== 'function') {
+                        setToast?.({
+                          type: 'error',
+                          text: 'Edit handler is missing from parent component.',
+                        });
+                        return;
+                      }
+                      try {
+                        onEdit(r);
+                      } catch (e) {
+                        console.error('Edit failed:', e);
+                        setToast?.({
+                          type: 'error',
+                          text: 'Edit failed: ' + (e.message || e),
+                        });
+                      }
+                    }}
+                  >
+                    Edit & Close
+                  </button>
+                )}
                 {r.status === 'Open' ? (
                   <Link href={`/admin/close/${r.id}`} className="btn primary small">Close Out</Link>
                 ) : (
