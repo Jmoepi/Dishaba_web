@@ -2,10 +2,21 @@ import { createClient } from '@supabase/supabase-js';
 
 const serviceUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE;
-if (!serviceKey) {
-  console.error('Missing SUPABASE_SERVICE_ROLE env for admin endpoints');
+
+if (!serviceUrl || !serviceKey) {
+  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE environment variables');
 }
-const supabaseAdmin = createClient(serviceUrl || '', serviceKey || '');
+
+const supabaseAdmin = createClient(serviceUrl, serviceKey);
+
+function normalizeIp(forwardedFor, remoteAddress) {
+  // x-forwarded-for can be comma-separated IPs; take the first (client IP)
+  if (forwardedFor) {
+    const firstIp = forwardedFor.split(',')[0].trim();
+    if (firstIp) return firstIp;
+  }
+  return remoteAddress || 'local';
+}
 
 const RATE = new Map();
 
@@ -34,7 +45,7 @@ async function logAudit(userId, action, targetId, details) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'local';
+  const ip = normalizeIp(req.headers['x-forwarded-for'], req.socket.remoteAddress);
   if (!checkRate(ip)) return res.status(429).json({ error: 'Rate limit exceeded' });
 
   const token = req.headers.authorization?.replace('Bearer ', '') || null;
@@ -50,6 +61,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = full_name.trim();
+
     const { data: userResp, error: userErr } = await supabaseAdmin.auth.getUser(token);
     if (userErr || !userResp?.user) return res.status(401).json({ error: 'Invalid token' });
     const creatorId = userResp.user.id;
@@ -64,42 +78,31 @@ export default async function handler(req, res) {
 
     if (creatorRole !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-    // Check if email already exists in auth.users
-    const { data: existingUsers, error: checkErr } = await supabaseAdmin.auth.admin.listUsers();
-    if (checkErr) {
-      console.error('Failed to list users:', checkErr);
-      return res.status(500).json({ error: 'Failed to check existing users' });
+    // Use inviteUserByEmail (Supabase's dedicated invite flow)
+    const { data: invited, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      cleanEmail,
+      {
+        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/login?email=${encodeURIComponent(cleanEmail)}`,
+        data: {
+          full_name: cleanName,
+          role: role,
+        },
+      }
+    );
+
+    if (inviteErr || !invited?.user) {
+      console.error('Failed to invite user:', inviteErr);
+      return res.status(400).json({ error: inviteErr?.message || 'Failed to invite user' });
     }
 
-    const emailExists = existingUsers?.users?.some(u => u.email === email.trim());
-    if (emailExists) {
-      return res.status(400).json({ error: 'Email already registered' });
-    }
-
-    // Create auth user with auto-confirm enabled (they'll set password via reset link)
-    const { data: newAuthUser, error: createAuthErr } = await supabaseAdmin.auth.admin.createUser({
-      email: email.trim(),
-      password: Math.random().toString(36).slice(-16), // Random password (they won't use it)
-      email_confirm: false, // Not confirmed yet
-      user_metadata: {
-        full_name: full_name.trim(),
-        role: role,
-      },
-    });
-
-    if (createAuthErr || !newAuthUser?.user) {
-      console.error('Failed to create auth user:', createAuthErr);
-      return res.status(500).json({ error: 'Failed to create user account' });
-    }
-
-    const newUserId = newAuthUser.user.id;
+    const newUserId = invited.user.id;
 
     // Create profile
     const { error: profileErr } = await supabaseAdmin
       .from('profiles')
       .insert([{
         id: newUserId,
-        full_name: full_name.trim(),
+        full_name: cleanName,
         role: role,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -121,7 +124,7 @@ export default async function handler(req, res) {
       .from('staff')
       .insert([{
         id: newUserId,
-        full_name: full_name.trim(),
+        full_name: cleanName,
         role: role,
         is_active: true,
         created_at: new Date().toISOString(),
@@ -139,32 +142,18 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to create staff record' });
     }
 
-    // Send password reset email (user will set password via link)
-    const { error: resetErr } = await supabaseAdmin.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/login?email=${encodeURIComponent(email.trim())}`,
-    });
-
-    if (resetErr) {
-      console.error('Failed to send password reset email:', resetErr);
-      // Don't fail - user is created but won't get email
-      // They can use "Forgot Password" later
-    }
-
     // Log audit
     await logAudit(creatorId, 'create_user_and_staff', newUserId, {
-      email,
-      full_name,
+      email: cleanEmail,
+      full_name: cleanName,
       role,
-      email_sent: !resetErr,
     });
 
     return res.status(201).json({
       ok: true,
       user_id: newUserId,
-      email: email.trim(),
-      message: resetErr
-        ? 'User created but email failed. They can use "Forgot Password" to set password.'
-        : 'User created and invitation email sent',
+      email: cleanEmail,
+      message: 'Invitation sent successfully. User can click the link in their email to set up their password.',
     });
   } catch (e) {
     console.error(e);
