@@ -79,10 +79,12 @@ export default async function handler(req, res) {
     if (creatorRole !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
     // Use inviteUserByEmail (Supabase's dedicated invite flow)
+    // Direct to password setup page on production
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dishaba-web.vercel.app';
     const { data: invited, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(
       cleanEmail,
       {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/login?email=${encodeURIComponent(cleanEmail)}`,
+        redirectTo: `${appUrl}/auth/setup-password?email=${encodeURIComponent(cleanEmail)}`,
         data: {
           full_name: cleanName,
           role: role,
