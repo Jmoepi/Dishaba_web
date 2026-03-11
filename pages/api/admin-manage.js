@@ -130,24 +130,50 @@ export default async function handler(req, res) {
   try {
     // LIST staff
     if (req.method === 'GET' && type === 'staff') {
+      const page = parseInt(getQueryValue(req.query.page) || '0', 10);
+      const limit = parseInt(getQueryValue(req.query.limit) || '20', 10);
+      const offset = page * limit;
+
+      // Get total count for hasMore calculation
+      const { count, error: countErr } = await supabaseAdmin
+        .from('staff')
+        .select('*', { count: 'exact', head: true });
+
+      if (countErr) throw countErr;
+
       const { data, error } = await supabaseAdmin
         .from('staff')
         .select('*')
-        .order('full_name', { ascending: true });
+        .order('full_name', { ascending: true })
+        .range(offset, offset + limit - 1);
 
       if (error) throw error;
-      return res.status(200).json({ data: data || [] });
+      const hasMore = offset + limit < (count || 0);
+      return res.status(200).json({ data: data || [], hasMore });
     }
 
     // LIST equipment
     if (req.method === 'GET' && type === 'equipment') {
+      const page = parseInt(getQueryValue(req.query.page) || '0', 10);
+      const limit = parseInt(getQueryValue(req.query.limit) || '20', 10);
+      const offset = page * limit;
+
+      // Get total count for hasMore calculation
+      const { count, error: countErr } = await supabaseAdmin
+        .from('equipment')
+        .select('*', { count: 'exact', head: true });
+
+      if (countErr) throw countErr;
+
       const { data, error } = await supabaseAdmin
         .from('equipment')
         .select('*')
-        .order('name', { ascending: true });
+        .order('name', { ascending: true })
+        .range(offset, offset + limit - 1);
 
       if (error) throw error;
-      return res.status(200).json({ data: data || [] });
+      const hasMore = offset + limit < (count || 0);
+      return res.status(200).json({ data: data || [], hasMore });
     }
 
     // CREATE equipment

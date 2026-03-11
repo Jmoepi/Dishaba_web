@@ -125,10 +125,14 @@ export default function AdminTools() {
   const [deleteLoadingKey, setDeleteLoadingKey] = useState('');
 
   const [staffList, setStaffList] = useState([]);
+  const [staffPage, setStaffPage] = useState(0);
+  const [staffHasMore, setStaffHasMore] = useState(false);
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [editingStaff, setEditingStaff] = useState(null);
 
   const [equipmentList, setEquipmentList] = useState([]);
+  const [equipmentPage, setEquipmentPage] = useState(0);
+  const [equipmentHasMore, setEquipmentHasMore] = useState(false);
   const [showAddEquipment, setShowAddEquipment] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState(null);
 
@@ -196,11 +200,13 @@ export default function AdminTools() {
     setLoadedTabs((prev) => ({ ...prev, [tab]: true }));
   }, []);
 
-  const loadStaff = useCallback(async () => {
+  const loadStaff = useCallback(async (page = 0) => {
     setStaffLoading(true);
     try {
-      const res = await apiFetch('/api/admin-manage?type=staff');
+      const res = await apiFetch(`/api/admin-manage?type=staff&page=${page}&limit=20`);
       setStaffList(Array.isArray(res.data) ? res.data : []);
+      setStaffHasMore(Boolean(res.hasMore));
+      setStaffPage(page);
       markTabLoaded('staff');
     } catch (e) {
       setToast({ type: 'error', text: 'Failed to load staff: ' + (e.message || e) });
@@ -209,11 +215,13 @@ export default function AdminTools() {
     }
   }, [markTabLoaded]);
 
-  const loadEquipment = useCallback(async () => {
+  const loadEquipment = useCallback(async (page = 0) => {
     setEquipmentLoading(true);
     try {
-      const res = await apiFetch('/api/admin-manage?type=equipment');
+      const res = await apiFetch(`/api/admin-manage?type=equipment&page=${page}&limit=20`);
       setEquipmentList(Array.isArray(res.data) ? res.data : []);
+      setEquipmentHasMore(Boolean(res.hasMore));
+      setEquipmentPage(page);
       markTabLoaded('equipment');
     } catch (e) {
       setToast({ type: 'error', text: 'Failed to load equipment: ' + (e.message || e) });
@@ -649,61 +657,80 @@ export default function AdminTools() {
               action={<button className="btn ghost" onClick={resetStaffFilters}>Clear filters</button>}
             />
           ) : (
-            <table className="table" role="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th style={{ width: 180 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStaff.map((staff) => {
-                  const isDeleting = deleteLoadingKey === `staff:${staff.id}`;
-                  return (
-                    <tr key={staff.id}>
-                      <td data-label="Name">{staff.full_name}</td>
-                      <td data-label="Role">
-                        <span className="small" style={{ textTransform: 'capitalize' }}>
-                          {staff.role}
-                        </span>
-                      </td>
-                      <td data-label="Status">
-                        <span
-                          className={`pill ${staff.is_active ? 'ok' : ''}`}
-                          style={{
-                            background: staff.is_active ? '#4caf50' : '#9e9e9e',
-                            color: '#fff',
-                          }}
-                        >
-                          {staff.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td data-label="Actions" style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          className="btn small"
-                          onClick={() => {
-                            setEditingStaff(staff);
-                            setShowAddStaff(true);
-                          }}
-                          disabled={isDeleting}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="btn ghost small"
-                          onClick={() => deleteStaff(staff.id)}
-                          disabled={isDeleting}
-                        >
-                          {isDeleting ? 'Deleting…' : 'Delete'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <>
+              <table className="table" role="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th style={{ width: 180 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStaff.map((staff) => {
+                    const isDeleting = deleteLoadingKey === `staff:${staff.id}`;
+                    return (
+                      <tr key={staff.id}>
+                        <td data-label="Name">{staff.full_name}</td>
+                        <td data-label="Role">
+                          <span className="small" style={{ textTransform: 'capitalize' }}>
+                            {staff.role}
+                          </span>
+                        </td>
+                        <td data-label="Status">
+                          <span
+                            className={`pill ${staff.is_active ? 'ok' : ''}`}
+                            style={{
+                              background: staff.is_active ? '#4caf50' : '#9e9e9e',
+                              color: '#fff',
+                            }}
+                          >
+                            {staff.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td data-label="Actions" style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            className="btn small"
+                            onClick={() => {
+                              setEditingStaff(staff);
+                              setShowAddStaff(true);
+                            }}
+                            disabled={isDeleting}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn ghost small"
+                            onClick={() => deleteStaff(staff.id)}
+                            disabled={isDeleting}
+                          >
+                            {isDeleting ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'center' }}>
+                <button
+                  className="btn ghost"
+                  onClick={() => loadStaff(Math.max(0, staffPage - 1))}
+                  disabled={staffPage === 0 || staffLoading}
+                >
+                  Previous
+                </button>
+                <button
+                  className="btn ghost"
+                  onClick={() => loadStaff(staffPage + 1)}
+                  disabled={!staffHasMore || staffLoading}
+                >
+                  Next
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -825,59 +852,78 @@ export default function AdminTools() {
               action={<button className="btn ghost" onClick={resetEquipmentFilters}>Clear filters</button>}
             />
           ) : (
-            <table className="table" role="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Section</th>
-                  <th>Status</th>
-                  <th style={{ width: 180 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEquipment.map((eq) => {
-                  const isDeleting = deleteLoadingKey === `equipment:${eq.id}`;
-                  return (
-                    <tr key={eq.id}>
-                      <td data-label="Name"><strong>{eq.name}</strong></td>
-                      <td data-label="Category"><span className="small">{eq.category}</span></td>
-                      <td data-label="Section"><span className="small">{eq.section || '—'}</span></td>
-                      <td data-label="Status">
-                        <span
-                          className="pill"
-                          style={{
-                            background: eq.is_active ? '#4caf50' : '#9e9e9e',
-                            color: '#fff',
-                          }}
-                        >
-                          {eq.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td data-label="Actions" style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          className="btn small"
-                          onClick={() => {
-                            setEditingEquipment(eq);
-                            setShowAddEquipment(true);
-                          }}
-                          disabled={isDeleting}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="btn ghost small"
-                          onClick={() => deleteEquipment(eq.id)}
-                          disabled={isDeleting}
-                        >
-                          {isDeleting ? 'Deleting…' : 'Delete'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <>
+              <table className="table" role="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Section</th>
+                    <th>Status</th>
+                    <th style={{ width: 180 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEquipment.map((eq) => {
+                    const isDeleting = deleteLoadingKey === `equipment:${eq.id}`;
+                    return (
+                      <tr key={eq.id}>
+                        <td data-label="Name"><strong>{eq.name}</strong></td>
+                        <td data-label="Category"><span className="small">{eq.category}</span></td>
+                        <td data-label="Section"><span className="small">{eq.section || '—'}</span></td>
+                        <td data-label="Status">
+                          <span
+                            className="pill"
+                            style={{
+                              background: eq.is_active ? '#4caf50' : '#9e9e9e',
+                              color: '#fff',
+                            }}
+                          >
+                            {eq.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td data-label="Actions" style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            className="btn small"
+                            onClick={() => {
+                              setEditingEquipment(eq);
+                              setShowAddEquipment(true);
+                            }}
+                            disabled={isDeleting}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn ghost small"
+                            onClick={() => deleteEquipment(eq.id)}
+                            disabled={isDeleting}
+                          >
+                            {isDeleting ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'center' }}>
+                <button
+                  className="btn ghost"
+                  onClick={() => loadEquipment(Math.max(0, equipmentPage - 1))}
+                  disabled={equipmentPage === 0 || equipmentLoading}
+                >
+                  Previous
+                </button>
+                <button
+                  className="btn ghost"
+                  onClick={() => loadEquipment(equipmentPage + 1)}
+                  disabled={!equipmentHasMore || equipmentLoading}
+                >
+                  Next
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
