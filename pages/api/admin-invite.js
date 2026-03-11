@@ -97,49 +97,86 @@ export default async function handler(req, res) {
 
     const newUserId = invited.user.id;
 
-    // Create profile
-    const { error: profileErr } = await supabaseAdmin
+    // Create or update profile (handle duplicate gracefully)
+    let profileErr = null;
+    const { data: existingProfile } = await supabaseAdmin
       .from('profiles')
-      .insert([{
-        id: newUserId,
-        full_name: cleanName,
-        role: role,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }]);
+      .select('role')
+      .eq('id', newUserId)
+      .maybeSingle();
+
+    if (existingProfile) {
+      // Profile exists - update it if role differs
+      if (existingProfile.role !== role) {
+        const { error: updateErr } = await supabaseAdmin
+          .from('profiles')
+          .update({ full_name: cleanName, role, updated_at: new Date().toISOString() })
+          .eq('id', newUserId);
+        profileErr = updateErr;
+      }
+      // If role matches, no action needed (idempotent)
+    } else {
+      // Profile doesn't exist - create it
+      const { error: insertErr } = await supabaseAdmin
+        .from('profiles')
+        .insert([{
+          id: newUserId,
+          full_name: cleanName,
+          role: role,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }]);
+      profileErr = insertErr;
+    }
 
     if (profileErr) {
-      console.error('Failed to create profile:', profileErr);
+      console.error('Failed to create/update profile:', profileErr);
       // Try to delete the auth user since profile creation failed
       try {
         await supabaseAdmin.auth.admin.deleteUser(newUserId);
       } catch (e) {
         console.warn('Failed to rollback user creation:', e);
       }
-      return res.status(500).json({ error: 'Failed to create profile' });
+      return res.status(500).json({ error: 'Failed to set up profile' });
     }
 
-    // Create staff record
-    const { error: staffErr } = await supabaseAdmin
+    // Create or update staff record (handle duplicate gracefully)
+    const { data: existingStaff } = await supabaseAdmin
       .from('staff')
-      .insert([{
-        id: newUserId,
-        full_name: cleanName,
-        role: role,
-        is_active: true,
-        created_at: new Date().toISOString(),
-      }]);
+      .select('role')
+      .eq('id', newUserId)
+      .maybeSingle();
+
+    let staffErr = null;
+    if (existingStaff) {
+      // Staff record exists - update it if needed
+      if (existingStaff.role !== role) {
+        const { error: updateErr } = await supabaseAdmin
+          .from('staff')
+          .update({ full_name: cleanName, role, updated_at: new Date().toISOString() })
+          .eq('id', newUserId);
+        staffErr = updateErr;
+      }
+      // If role matches, no action needed (idempotent)
+    } else {
+      // Staff record doesn't exist - create it
+      const { error: insertErr } = await supabaseAdmin
+        .from('staff')
+        .insert([{
+          id: newUserId,
+          full_name: cleanName,
+          role: role,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        }]);
+      staffErr = insertErr;
+    }
 
     if (staffErr) {
-      console.error('Failed to create staff record:', staffErr);
-      // Rollback: delete profile and auth user
-      try {
-        await supabaseAdmin.from('profiles').delete().eq('id', newUserId);
-        await supabaseAdmin.auth.admin.deleteUser(newUserId);
-      } catch (e) {
-        console.warn('Failed to rollback staff creation:', e);
-      }
-      return res.status(500).json({ error: 'Failed to create staff record' });
+      console.error('Failed to create/update staff record:', staffErr);
+      // Don't rollback - user and profile are already set up
+      // Staff record issue is non-fatal
+      return res.status(500).json({ error: 'Failed to set up staff record' });
     }
 
     // Log audit
