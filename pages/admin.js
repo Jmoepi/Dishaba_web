@@ -498,13 +498,14 @@ function ApproveBreakdownModal({
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#fff',
+          background: 'var(--surface)',
+          color: 'var(--text)',
           borderRadius: 12,
           width: '100%',
           maxWidth: 720,
           maxHeight: '90vh',
           padding: 20,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+          boxShadow: 'var(--shadow-lg)',
           overflowY: 'auto',
         }}
       >
@@ -710,13 +711,14 @@ function ReopenBreakdownModal({
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#fff',
+          background: 'var(--surface)',
+          color: 'var(--text)',
           borderRadius: 12,
           width: '100%',
           maxWidth: 600,
           maxHeight: '90vh',
           padding: 20,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+          boxShadow: 'var(--shadow-lg)',
           overflowY: 'auto',
         }}
       >

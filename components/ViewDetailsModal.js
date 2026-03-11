@@ -114,13 +114,14 @@ export default function ViewDetailsModal({ open, onClose, breakdown, statusHisto
         onKeyDown={(e) => e.stopPropagation()}
         tabIndex="-1"
         style={{
-          background: '#fff',
+          background: 'var(--surface)',
+          color: 'var(--text)',
           borderRadius: 12,
           width: '100%',
           maxWidth: '850px',
           maxHeight: '90vh',
           padding: 20,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+          boxShadow: 'var(--shadow-lg)',
           display: 'flex',
           flexDirection: 'column',
         }}
