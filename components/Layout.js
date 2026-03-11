@@ -27,6 +27,9 @@ function isPrivileged(role) {
   return r === 'admin';
 }
 
+// Routes that require authentication
+const PROTECTED_ROUTES = ['/dashboard', '/admin', '/admin/tools', '/analytics', '/log'];
+
 export default function Layout({
   children,
   title = 'Dishaba Mine',
@@ -42,6 +45,9 @@ export default function Layout({
   const { theme, toggleTheme } = useTheme();
 
   const isAuthPage = router.pathname === '/login';
+  const isProtectedRoute = PROTECTED_ROUTES.some(route => 
+    router.pathname === route || router.pathname.startsWith(`${route}/`)
+  );
   const shouldShowShell = showShell && !isAuthPage;
 
   const isActive = (href) => {
@@ -76,34 +82,82 @@ export default function Layout({
 
     const getRole = async (u) => {
       if (!u) return 'operator';
+      
+      // Try user metadata first (no DB query needed)
       const metaRole = u?.user_metadata?.role || u?.app_metadata?.role;
       if (metaRole) return String(metaRole).toLowerCase();
+      
+      // Fallback to database query only if metadata is missing
       if (u.id) {
-        const { data } = await supabase.from('profiles').select('role').eq('id', u.id).single();
-        return (data?.role ? String(data.role) : 'operator').toLowerCase();
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', u.id)
+            .maybeSingle();
+          return (data?.role ? String(data.role) : 'operator').toLowerCase();
+        } catch (e) {
+          console.warn('Failed to fetch role:', e);
+          return 'operator';
+        }
       }
       return 'operator';
     };
 
-    const loadUserAndRole = async () => {
-      setAuthLoading(true);
-      const { data } = await supabase.auth.getUser();
+    const initializeAuth = async () => {
+      // Use getSession() first (cached, no network call)
+      const { data: sessionData } = await supabase.auth.getSession();
+      const sessionUser = sessionData?.session?.user || null;
+
       if (!mounted) return;
-      const u = data?.user || null;
+
+      // If we have a session, use that; otherwise call getUser() for fresh state
+      let u = sessionUser;
+      if (!u) {
+        const { data: userData } = await supabase.auth.getUser();
+        u = userData?.user || null;
+      }
+
+      // Redirect auth page user to dashboard
+      if (isAuthPage && u) {
+        router.push('/dashboard');
+        return;
+      }
+
+      // Redirect unauthenticated user away from protected routes
+      if (!isAuthPage && isProtectedRoute && !u) {
+        router.push('/login');
+        return;
+      }
+
       setUser(u);
       const userRole = await getRole(u);
+      
       if (mounted) {
         setRole(userRole);
         setAuthLoading(false);
       }
     };
 
-    loadUserAndRole();
+    initializeAuth();
 
+    // Listen for auth state changes
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
+
       const u = session?.user || null;
       setUser(u);
+
+      // Redirect after auth change
+      if (isAuthPage && u) {
+        router.push('/dashboard');
+        return;
+      }
+      if (isProtectedRoute && !u) {
+        router.push('/login');
+        return;
+      }
+
       const userRole = await getRole(u);
       if (mounted) {
         setRole(userRole);
@@ -115,7 +169,7 @@ export default function Layout({
       mounted = false;
       sub?.subscription?.unsubscribe();
     };
-  }, []);
+  }, [isAuthPage, isProtectedRoute, router]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -158,7 +212,7 @@ export default function Layout({
 
           <div className="actions">
             {authLoading ? (
-              <div className="small muted">Checking session…</div>
+              <div className="small muted" style={{ minWidth: 120 }}>…</div>
             ) : user ? (
               <>
                 <span className={`role-badge ${roleLabel(role).toLowerCase().replace(/\s/g, '-')}`}>
